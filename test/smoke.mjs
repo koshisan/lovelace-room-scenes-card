@@ -4,7 +4,9 @@
 
 const mkEl = (tag) => {
   const el = {
-    tagName: tag, children: [], style: {}, dataset: {},
+    tagName: tag, children: [], dataset: {},
+    style: { _props: {}, setProperty(k, v) { this._props[k] = v; },
+             getPropertyValue(k) { return this._props[k]; } },
     textContent: "", title: "", type: "", _attrs: {}, _listeners: {},
     classList: {
       _s: new Set(),
@@ -18,7 +20,11 @@ const mkEl = (tag) => {
     addEventListener(ev, fn) { (this._listeners[ev] ||= []).push(fn); },
     removeEventListener() {},
     remove() {},
-    querySelectorAll() { return []; },
+    attachShadow() { el.shadowRoot = mkEl("shadow-root"); return el.shadowRoot; },
+    querySelectorAll(sel) {
+      const cls = sel.replace(".", "");
+      return walk(el).filter((n) => n !== el && n.classList.contains(cls));
+    },
     click() { (this._listeners.click || []).forEach((f) => f()); },
   };
   Object.defineProperty(el, "innerHTML", { set() { el.children = []; }, get: () => "" });
@@ -46,7 +52,7 @@ globalThis.customElements = {
     if (n === "room-scenes-card") Ctor = c;
     if (n === "room-scenes-card-editor") EditorCtor = c;
   },
-  get: () => undefined,
+  get: (n) => (n === "ha-dialog" ? class {} : undefined),
 };
 globalThis.HTMLElement = class {
   constructor() { this._listeners = {}; }
@@ -123,10 +129,11 @@ check(
   "Namensaufloesung: 'Rest' -> uuid-rest",
   tiles[1].dataset.presetId === "uuid-rest"
 );
+const favSwatch = walk(tiles[1]).find((n) => n.classList.contains("swatch"));
 check(
   "Thumbnail aus der Bibliothek",
-  String(tiles[1].style.backgroundImage).includes("/assets/scene_presets/uuid-rest.jpeg"),
-  tiles[1].style.backgroundImage
+  String(favSwatch?.style.backgroundImage).includes("/assets/scene_presets/uuid-rest.jpeg"),
+  String(favSwatch?.style.backgroundImage)
 );
 check(
   "Unbekanntes Preset wird sichtbar statt still verschluckt",
@@ -316,6 +323,70 @@ check(
   emitted?.modes?.scene === undefined,
   JSON.stringify(emitted?.modes)
 );
+
+
+/* ---------------------------------------------------------------------------
+ * Popup
+ *
+ * Der Dialog haengt an document.body, nicht im Shadow DOM der Karte. Genau
+ * daran sind die Kacheln vorher gescheitert: STYLES kam dort nie an.
+ * ------------------------------------------------------------------------ */
+
+const moreBtn = walk(card.shadowRoot).find((n) => n.classList.contains("more"));
+check("Karte hat einen „Alle anzeigen“-Knopf", !!moreBtn);
+moreBtn.click();
+
+check("Dialog wurde geoeffnet", !!card._dialog);
+check("Dialog hat einen eigenen Shadow Root", !!card._dialogRoot);
+
+const dlgStyle = walk(card._dialogRoot).find((n) => n.tagName === "style");
+check(
+  "Kachel-Styles landen im Dialog (das war der Bug)",
+  dlgStyle?.textContent?.includes(".tile .swatch"),
+  "STYLES fehlt im Dialog"
+);
+check(
+  "Dialog-Raster-Styles sind auch da",
+  dlgStyle?.textContent?.includes(".rsc-dialog-grid")
+);
+check(
+  "nichts davon liegt im globalen Light DOM",
+  !walk(card._dialog).some((n) => n.tagName === "style"),
+  "style-Tag direkt im Dialog gefunden"
+);
+
+const dlgTiles = walk(card._dialogRoot).filter((n) => n.classList.contains("tile"));
+check("Dialog zeigt Kacheln", dlgTiles.length === 2, `${dlgTiles.length}`);
+check(
+  "Dialog-Kacheln nutzen die Browse-Variante",
+  dlgTiles.every((t) => t.classList.contains("browse"))
+);
+
+const dlgSwatch = walk(dlgTiles[0]).find((n) => n.classList.contains("swatch"));
+check(
+  "Vorschaubild sitzt am Swatch, nicht am Knopf",
+  String(dlgSwatch?.style.backgroundImage).includes("/assets/scene_presets/"),
+  String(dlgSwatch?.style.backgroundImage)
+);
+check(
+  "der Knopf selbst traegt kein Hintergrundbild mehr",
+  !dlgTiles[0].style.backgroundImage
+);
+
+// Markierung nachziehen, ohne das Popup neu zu bauen
+card._refreshDialogSelection();
+const marked = dlgTiles.filter((t) => t.classList.contains("current"));
+check(
+  "genau die aktive Szene ist im Popup markiert",
+  // Der Mock-Service aendert keinen State, aktiv ist also weiterhin uuid-relax.
+  marked.length === 1 && marked[0].dataset.presetId === "uuid-relax",
+  JSON.stringify(marked.map((t) => t.dataset.presetId))
+);
+
+// Auswahl schliesst das Popup
+dlgTiles[1].click();
+check("Auswahl im Popup schliesst den Dialog", !card._dialog);
+check("Shadow Root wird mit aufgeraeumt", !card._dialogRoot);
 
 
 console.log("\n  BESTANDEN (" + ok.length + ")");

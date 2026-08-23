@@ -24,7 +24,7 @@ Gedacht für Setups, in denen ein Raum mehrere Lichtmodi hat, die *keine* Szenen
 - **Modus-Chips** aus den `options` deines `input_select`. Optik über die CSS-Variablen von [Bubble Card](https://github.com/Clooos/Bubble-Card), mit Rückfall auf die normalen HA-Theme-Variablen, wenn Bubble Card nicht installiert ist.
 - **Automatik-Schalter** für einen `input_boolean` rechts in derselben Zeile.
 - **Fünf feste Favoriten** plus einem Slot ganz vorn, der immer die aktuelle Szene zeigt. Läuft gerade ein anderer Modus, steht dort die zuletzt benutzte Szene, gedimmt — ein Tap genügt zum Zurückwechseln.
-- **Popup** mit der kompletten Bibliothek, nach Kategorien sortiert, optional mit einem „Zuletzt benutzt"-Regal.
+- **Popup** mit der kompletten Bibliothek, nach Kategorien sortiert, optional mit einem „Zuletzt benutzt"-Regal. Dort sitzt die Beschriftung unter dem Bild statt darauf — beim Stöbern will man die Farben sehen, nicht den Namen.
 - **Thumbnails kommen von selbst.** Die Karte liest `/assets/scene_presets/scene_presets.json` (die Integration stellt die View ohne Auth bereit) und löst Presets über ihren Namen auf. Du schreibst `Rest`, nicht `e03267e7-9914-4f47-97fe-63c0bd317fe7`.
 
 Die Favoriten stehen bewusst fest statt sich nach Häufigkeit umzusortieren. Wandernde Kacheln zerstören das Muskelgedächtnis, und genau davon lebt eine Karte, die man täglich am Tablet oder neben dem Bett antippt.

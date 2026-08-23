@@ -8,7 +8,7 @@
  * MIT
  */
 
-const CARD_VERSION = "1.2.0";
+const CARD_VERSION = "1.2.1";
 
 const PRESET_DATA_URL = "/assets/scene_presets/scene_presets.json";
 const PRESET_IMG_BASE = "/assets/scene_presets/";
@@ -119,13 +119,11 @@ const STYLES = `
   .grid { display: grid; gap: var(--rsc-gap); }
 
   .tile {
-    position: relative; aspect-ratio: 1 / 1;
-    border: none; padding: 0; cursor: pointer; overflow: hidden;
-    color: #fff;
-    background-color: var(--secondary-background-color);
-    background-size: cover; background-position: center;
-    border-radius: var(--bubble-border-radius, var(--ha-card-border-radius, 18px));
-    transition: transform .15s ease, box-shadow .15s ease, opacity .3s ease;
+    position: relative;
+    display: flex; flex-direction: column;
+    border: none; padding: 0; cursor: pointer;
+    background: none; color: #fff;
+    transition: transform .15s ease, opacity .3s ease;
     -webkit-tap-highlight-color: transparent;
   }
   .tile:hover { transform: scale(1.03); }
@@ -135,7 +133,15 @@ const STYLES = `
      anderer Modus laeuft - dann aber gedimmt, damit "aktiv" eindeutig bleibt. */
   .tile.dimmed { opacity: .45; filter: saturate(.4); }
 
-  .tile.current {
+  .tile .swatch {
+    position: relative; width: 100%; aspect-ratio: 1 / 1;
+    overflow: hidden;
+    background-color: var(--secondary-background-color);
+    background-size: cover; background-position: center;
+    border-radius: var(--bubble-border-radius, var(--ha-card-border-radius, 18px));
+    transition: box-shadow .15s ease;
+  }
+  .tile.current .swatch {
     box-shadow: inset 0 0 0 3px var(--bubble-accent-color, var(--accent-color));
   }
 
@@ -146,6 +152,19 @@ const STYLES = `
     background: linear-gradient(transparent, rgba(0,0,0,.78));
     text-shadow: 0 1px 3px rgba(0,0,0,.9);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Im Popup geht es genau darum, die Farben zu sehen. Der dunkle Verlauf
+     ueber dem unteren Drittel verdeckt bei kleinen Kacheln zu viel davon,
+     also wandert die Beschriftung dort unter das Bild. */
+  .tile.browse .label {
+    position: static;
+    padding: 5px 2px 0 2px;
+    background: none; text-shadow: none;
+    color: var(--primary-text-color);
+    white-space: normal; overflow: visible;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    min-height: 2.4em;
   }
 
   .tile .badge {
@@ -179,17 +198,27 @@ const STYLES = `
   }
 `;
 
+/* Der Dialog haengt an document.body, also ausserhalb des Shadow DOM der
+   Karte. Er bekommt deshalb einen eigenen Shadow Root, in den STYLES und
+   diese Regeln zusammen hineingereicht werden - sonst stehen die Kacheln
+   dort voellig ungestylt da, und generische Klassennamen wie .tile wuerden
+   im globalen Light DOM mit anderen Karten kollidieren. */
 const DIALOG_STYLES = `
+  .rsc-dialog { padding: 4px 4px 8px 4px; }
+
   .rsc-dialog-grid {
-    display: grid; gap: 8px;
-    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    margin: 0 0 20px 0;
+    display: grid; gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    margin: 0 0 22px 0;
   }
+
   .rsc-dialog h3 {
     margin: 4px 0 10px 0; font-size: 14px; font-weight: 500;
     color: var(--secondary-text-color);
+    position: sticky; top: 0; z-index: 1;
+    background: var(--card-background-color, var(--ha-card-background));
+    padding: 6px 0;
   }
-  .rsc-dialog { padding: 4px; }
 `;
 
 /* -------------------------------------------------------------------------
@@ -204,6 +233,7 @@ class RoomScenesCard extends HTMLElement {
     this._error = null;
     this._signature = null;
     this._dialog = null;
+    this._dialogRoot = null;
   }
 
   /* ---- Konfiguration ---- */
@@ -503,22 +533,29 @@ class RoomScenesCard extends HTMLElement {
     return m;
   }
 
-  _tile(preset, { current = false, dimmed = false, badge = false } = {}) {
+  _tile(preset, { current = false, dimmed = false, badge = false, browse = false } = {}) {
     const tile = document.createElement("button");
     tile.type = "button";
     tile.className =
-      "tile" + (current ? " current" : "") + (dimmed ? " dimmed" : "");
+      "tile" +
+      (current ? " current" : "") +
+      (dimmed ? " dimmed" : "") +
+      (browse ? " browse" : "");
     tile.dataset.presetId = preset.id;
 
+    const swatch = document.createElement("div");
+    swatch.className = "swatch";
+    tile.appendChild(swatch);
+
     if (preset.image) {
-      tile.style.backgroundImage = `url("${preset.image}")`;
+      swatch.style.backgroundImage = `url("${preset.image}")`;
     } else {
       const fb = document.createElement("div");
       fb.className = "fallback";
       const icon = document.createElement("ha-icon");
       icon.setAttribute("icon", preset.missing ? "mdi:help-circle-outline" : "mdi:palette");
       fb.appendChild(icon);
-      tile.appendChild(fb);
+      swatch.appendChild(fb);
     }
 
     if (badge) {
@@ -544,12 +581,15 @@ class RoomScenesCard extends HTMLElement {
   _emptyTile() {
     const tile = document.createElement("div");
     tile.className = "tile dimmed";
+    const swatch = document.createElement("div");
+    swatch.className = "swatch";
+    tile.appendChild(swatch);
     const fb = document.createElement("div");
     fb.className = "fallback";
     const icon = document.createElement("ha-icon");
     icon.setAttribute("icon", "mdi:palette-outline");
     fb.appendChild(icon);
-    tile.appendChild(fb);
+    swatch.appendChild(fb);
     const label = document.createElement("div");
     label.className = "label";
     label.textContent = "Keine Szene";
@@ -576,14 +616,22 @@ class RoomScenesCard extends HTMLElement {
     dialog.setAttribute("open", "");
     dialog.setAttribute("hideactions", "");
     dialog.setAttribute("heading", c.title ? `${c.title} – Szenen` : "Szenen");
+    dialog.style.setProperty("--mdc-dialog-max-width", "760px");
+    dialog.style.setProperty("--mdc-dialog-min-width", "min(92vw, 420px)");
+
+    // Eigener Shadow Root: nur so gelten STYLES auch hier, und nur so bleiben
+    // die Regeln aus dem Dialog heraus.
+    const host = document.createElement("div");
+    const root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
+    dialog.appendChild(host);
 
     const style = document.createElement("style");
-    style.textContent = DIALOG_STYLES;
-    dialog.appendChild(style);
+    style.textContent = STYLES + DIALOG_STYLES;
+    root.appendChild(style);
 
     const body = document.createElement("div");
     body.className = "rsc-dialog";
-    dialog.appendChild(body);
+    root.appendChild(body);
 
     const recent = c.history_entity
       ? this._hass.states[c.history_entity]?.attributes?.recent
@@ -610,7 +658,7 @@ class RoomScenesCard extends HTMLElement {
       const grid = document.createElement("div");
       grid.className = "rsc-dialog-grid";
       for (const preset of section.presets) {
-        grid.appendChild(this._tile(preset));
+        grid.appendChild(this._tile(preset, { browse: true }));
       }
       body.appendChild(grid);
     }
@@ -618,6 +666,7 @@ class RoomScenesCard extends HTMLElement {
     dialog.addEventListener("closed", () => this._closeDialog());
     document.body.appendChild(dialog);
     this._dialog = dialog;
+    this._dialogRoot = root;
     this._refreshDialogSelection();
   }
 
@@ -625,17 +674,18 @@ class RoomScenesCard extends HTMLElement {
     if (!this._dialog) return;
     const d = this._dialog;
     this._dialog = null;
+    this._dialogRoot = null;
     d.remove();
   }
 
   /* Beim Popup nur die Markierung nachziehen statt neu zu bauen - sonst
      springt die Scrollposition bei jedem State-Update zurueck nach oben. */
   _refreshDialogSelection() {
-    if (!this._dialog || !this._hass) return;
+    if (!this._dialogRoot || !this._hass) return;
     const c = this._config;
     const sceneActive = this._hass.states[c.mode_entity]?.state === c.scene_option;
     const activeId = c.preset_entity ? this._hass.states[c.preset_entity]?.state : null;
-    for (const tile of this._dialog.querySelectorAll(".tile")) {
+    for (const tile of this._dialogRoot.querySelectorAll(".tile")) {
       tile.classList.toggle(
         "current",
         sceneActive && tile.dataset.presetId === activeId

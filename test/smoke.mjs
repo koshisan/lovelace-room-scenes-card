@@ -78,8 +78,8 @@ const calls = [];
 const hass = {
   states: {
     "input_select.wz_modus": {
-      state: "Sync",
-      attributes: { options: ["Aus", "Szene", "Sync", "VR"] },
+      state: "sync",
+      attributes: { options: ["aus", "scene", "sync", "vr"] },
     },
     "input_text.wz_szene": { state: "uuid-relax", attributes: {} },
     "input_boolean.wz_auto": { state: "on", attributes: {} },
@@ -93,9 +93,9 @@ card.setConfig({
   mode_entity: "input_select.wz_modus",
   preset_entity: "input_text.wz_szene",
   auto_entity: "input_boolean.wz_auto",
-  scene_option: "Szene",
+  scene_option: "scene",
   favorites: ["Rest", "uuid-relax", "Gibtsnicht"],
-  modes: { Sync: { icon: "mdi:television" } },
+  modes: { sync: { icon: "mdi:television" } },
   script: { entity: "script.licht_modus_setzen", data: { raum: "wohnzimmer" } },
 });
 
@@ -114,8 +114,8 @@ const tiles = nodes.filter((n) => n.classList.contains("tile"));
 
 check("4 Modus-Chips + 1 Auto-Chip", chips.length === 5, `bekam ${chips.length}`);
 check("Auto-Chip ist aktiv", chips[4].classList.contains("active"));
-check("Sync-Chip ist aktiv", chips[2].classList.contains("active"));
-check("Szene-Chip ist NICHT aktiv", !chips[1].classList.contains("active"));
+check("sync-Chip ist aktiv", chips[2].classList.contains("active"));
+check("scene-Chip ist NICHT aktiv", !chips[1].classList.contains("active"));
 check("6 Kacheln (1 aktiv + 5 fav... hier 3 fav)", tiles.length === 4, `bekam ${tiles.length}`);
 check("Slot 1 gedimmt (Modus != Szene)", tiles[0].classList.contains("dimmed"));
 check("Slot 1 zeigt letzte Szene", tiles[0].dataset.presetId === "uuid-relax");
@@ -145,7 +145,7 @@ check(
 check(
   "Script bekommt raum + modus + preset_id",
   calls[0]?.data?.raum === "wohnzimmer" &&
-    calls[0]?.data?.modus === "Szene" &&
+    calls[0]?.data?.modus === "scene" &&
     calls[0]?.data?.preset_id === "uuid-rest",
   JSON.stringify(calls[0]?.data)
 );
@@ -157,8 +157,8 @@ card._render = () => { renders++; origRender(); };
 card.hass = hass;
 check("Unveraenderter State rendert nicht neu", renders === 0, `${renders} Renders`);
 hass.states["input_select.wz_modus"] = {
-  state: "Szene",
-  attributes: { options: ["Aus", "Szene", "Sync", "VR"] },
+  state: "scene",
+  attributes: { options: ["aus", "scene", "sync", "vr"] },
 };
 card.hass = hass;
 check("Geaenderter State rendert neu", renders === 1, `${renders} Renders`);
@@ -197,7 +197,7 @@ ed.addEventListener("config-changed", (ev) => { emitted = ev.detail.config; });
 ed.setConfig({
   mode_entity: "input_select.wz_modus",
   favorites: ["Rest", "Relax"],
-  presets: { Sync: { image: "/local/hyperion.png" } },
+  presets: { sync: { image: "/local/hyperion.png" } },
   script: { entity: "script.licht_modus_setzen", data: { raum: "wohnzimmer", etage: "og" } },
 });
 ed.hass = hass;
@@ -214,7 +214,7 @@ const sceneField = forms[0].schema
   .find((s) => s.name === "scene_option");
 check(
   "scene_option wird zur Auswahlliste, sobald der input_select bekannt ist",
-  !!sceneField?.selector?.select?.options?.includes("Szene"),
+  !!sceneField?.selector?.select?.options?.includes("scene"),
   JSON.stringify(sceneField?.selector)
 );
 
@@ -240,7 +240,7 @@ check(
 // Der kritische Teil: unbekannte Keys duerfen nicht verschwinden
 check(
   "presets-Overrides ueberleben eine Editor-Aenderung",
-  emitted?.presets?.Sync?.image === "/local/hyperion.png",
+  emitted?.presets?.sync?.image === "/local/hyperion.png",
   JSON.stringify(emitted?.presets)
 );
 check(
@@ -264,7 +264,7 @@ check("Ein Icon-Picker je input_select-Option", iconPickers.length === 4, `${ico
 fire(iconPickers[2], "value-changed", { value: "mdi:television" });
 check(
   "Icon-Auswahl landet unter modes.<Option>",
-  emitted?.modes?.Sync?.icon === "mdi:television",
+  emitted?.modes?.sync?.icon === "mdi:television",
   JSON.stringify(emitted?.modes)
 );
 
@@ -276,6 +276,45 @@ check(
   "Leere Felder werden aus der Config entfernt",
   emitted && !("title" in emitted),
   JSON.stringify(emitted)
+);
+
+
+// Beschriftung je Modus - wichtig, seit die Optionen kleingeschrieben sind
+ed.setConfig({
+  mode_entity: "input_select.wz_modus",
+  modes: { sync: { icon: "mdi:television" } },
+});
+ed.hass = hass;
+ed._modeSig = null;
+ed._renderModes();
+
+const nameInputs = walk(ed.shadowRoot).filter((n) => n.tagName === "input");
+check("Ein Beschriftungsfeld je Option", nameInputs.length === 4, `${nameInputs.length}`);
+check(
+  "Platzhalter zeigt den rohen Wert",
+  nameInputs[1].placeholder === "scene",
+  nameInputs[1].placeholder
+);
+
+nameInputs[1].value = "Szene";
+fire(nameInputs[1], "input");
+check(
+  "Beschriftung landet unter modes.<Option>.name",
+  emitted?.modes?.scene?.name === "Szene",
+  JSON.stringify(emitted?.modes)
+);
+check(
+  "vorhandenes Icon einer anderen Option bleibt erhalten",
+  emitted?.modes?.sync?.icon === "mdi:television",
+  JSON.stringify(emitted?.modes)
+);
+
+nameInputs[1].value = "   ";
+fire(nameInputs[1], "input");
+check(
+  "leere Beschriftung raeumt den Eintrag wieder ab",
+  emitted?.modes?.scene === undefined,
+  JSON.stringify(emitted?.modes)
 );
 
 

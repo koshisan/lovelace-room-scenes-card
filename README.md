@@ -47,7 +47,7 @@ Die Favoriten stehen bewusst fest statt sich nach Häufigkeit umzusortieren. Wan
 
 ## Konfiguration
 
-Die Karte bringt einen **visuellen Editor** mit — Entity-Picker für die Helper, eine Auswahlliste für den Szenenmodus (gefüllt aus den Optionen deines `input_select`), Icon-Picker je Chip und eine Favoritenliste mit Vorschaubildern und Sortierpfeilen.
+Die Karte bringt einen **visuellen Editor** mit — Entity-Picker für die Helper, eine Auswahlliste für den Szenenmodus (gefüllt aus den Optionen deines `input_select`), Icon und Beschriftung je Chip, und eine Favoritenliste mit Vorschaubildern und Sortierpfeilen.
 
 Was der Editor nicht abbildet — `presets`-Overrides und zusätzliche Felder in `script.data` — bleibt beim Speichern trotzdem erhalten. Du kannst also zwischen YAML und Oberfläche hin- und herwechseln, ohne dass dir etwas verloren geht.
 
@@ -62,7 +62,7 @@ preset_entity: input_text.wohnzimmer_szene
 auto_entity: input_boolean.wohnzimmer_auto
 history_entity: sensor.wohnzimmer_szenen_verlauf
 
-scene_option: Szene
+scene_option: scene
 columns: 3
 
 script:
@@ -70,13 +70,15 @@ script:
   data:
     raum: wohnzimmer
 
+# Die Werte des input_select sind kleingeschrieben, die Chips sollen es
+# nicht sein - dafuer ist name da. Ohne name zeigt der Chip den Wert selbst.
 modes:
-  Aus:       { icon: mdi:power }
-  Szene:     { icon: mdi:palette }
-  Sync:      { icon: mdi:television-ambient-light }
-  VR:        { icon: mdi:virtual-reality }
-  Circadian: { icon: mdi:theme-light-dark }
-  Night:     { icon: mdi:weather-night }
+  aus:       { icon: mdi:power,                     name: Aus }
+  scene:     { icon: mdi:palette,                   name: Szene }
+  sync:      { icon: mdi:television-ambient-light,  name: Sync }
+  vr:        { icon: mdi:virtual-reality,           name: VR }
+  circadian: { icon: mdi:theme-light-dark,          name: Circadian }
+  night:     { icon: mdi:weather-night,             name: Night }
 
 favorites:
   - Rest
@@ -95,7 +97,7 @@ favorites:
 | `auto_entity` | string | – | `input_boolean` für den Automatik-Chip. |
 | `history_entity` | string | – | Sensor mit einem `recent`-Attribut für das „Zuletzt benutzt"-Regal im Popup. |
 | `title` | string | – | Überschrift. Weglassen blendet die Kopfzeile aus. |
-| `scene_option` | string | `Szene` | Welche Option des `input_select` den Szenenmodus bedeutet. |
+| `scene_option` | string | `scene` | Welche Option des `input_select` den Szenenmodus bedeutet. |
 | `columns` | number | `3` | Spalten im Raster. |
 | `favorites` | list | `[]` | Preset-Namen oder UUIDs. |
 | `presets` | map | `{}` | Überschreibt `name` und `image` je Preset. |

@@ -25,12 +25,12 @@ input_select:
     name: Wohnzimmer Modus
     icon: mdi:lightbulb-group
     options:
-      - Aus
-      - Szene
-      - Sync
-      - VR
-      - Circadian
-      - Night
+      - aus
+      - scene
+      - sync
+      - vr
+      - circadian
+      - night
 
 input_text:
   wohnzimmer_szene:
@@ -96,9 +96,9 @@ script:
       modus:
         description: Zu setzende Option des input_select
         required: true
-        example: Szene
+        example: scene
       preset_id:
-        description: UUID eines scene_presets-Presets (nur bei modus "Szene")
+        description: UUID eines scene_presets-Presets (nur bei modus "scene")
         required: false
     sequence:
       - if:
@@ -130,7 +130,7 @@ script:
       szene: "{{ states('input_text.wohnzimmer_szene') }}"
     sequence:
       - choose:
-          - conditions: "{{ modus == 'Aus' }}"
+          - conditions: "{{ modus == 'aus' }}"
             sequence:
               - action: light.turn_off
                 target:
@@ -138,7 +138,7 @@ script:
                 data:
                   transition: 2
 
-          - conditions: "{{ modus == 'Szene' }}"
+          - conditions: "{{ modus == 'scene' }}"
             sequence:
               - condition: template
                 value_template: "{{ szene not in ['', 'unknown', 'unavailable'] }}"
@@ -149,14 +149,14 @@ script:
                   targets:
                     area_id: wohnzimmer
 
-          - conditions: "{{ modus == 'Sync' }}"
+          - conditions: "{{ modus == 'sync' }}"
             sequence:
               # hier deine Hyperion-Aktion
               - action: switch.turn_on
                 target:
                   entity_id: switch.hyperion_wohnzimmer
 
-          - conditions: "{{ modus == 'VR' }}"
+          - conditions: "{{ modus == 'vr' }}"
             sequence:
               - action: light.turn_on
                 target:
@@ -166,13 +166,13 @@ script:
                   color_temp_kelvin: 2200
                   transition: 3
 
-          - conditions: "{{ modus == 'Circadian' }}"
+          - conditions: "{{ modus == 'circadian' }}"
             sequence:
               - action: switch.turn_on
                 target:
                   entity_id: switch.adaptive_lighting_wohnzimmer
 
-          - conditions: "{{ modus == 'Night' }}"
+          - conditions: "{{ modus == 'night' }}"
             sequence:
               - action: light.turn_on
                 target:
@@ -233,6 +233,6 @@ automation:
         conditions:
           - condition: state
             entity_id: input_select.wohnzimmer_modus
-            state: Aus
+            state: aus
     actions:
       - action: script.wohnzimmer_licht_anwenden

@@ -8,7 +8,7 @@
  * MIT
  */
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.2.0";
 
 const PRESET_DATA_URL = "/assets/scene_presets/scene_presets.json";
 const PRESET_IMG_BASE = "/assets/scene_presets/";
@@ -218,7 +218,7 @@ class RoomScenesCard extends HTMLElement {
 
     this._config = {
       columns: 3,
-      scene_option: "Szene",
+      scene_option: "scene",
       show_current: true,
       show_more: true,
       favorites: [],
@@ -736,10 +736,19 @@ const EDITOR_STYLES = `
   }
 
   .modegrid {
-    display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+    display: grid;
+    grid-template-columns: minmax(0,0.7fr) minmax(0,1fr) minmax(0,1fr);
     gap: 8px; align-items: center;
   }
-  .modegrid .lbl { font-size: 14px; color: var(--primary-text-color); }
+  .modegrid .lbl {
+    font-size: 13px; font-family: var(--code-font-family, monospace);
+    color: var(--secondary-text-color);
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .modegrid .colhead {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--secondary-text-color); padding-bottom: 2px;
+  }
 
   .empty {
     font-size: 13px; font-style: italic;
@@ -907,7 +916,7 @@ class RoomScenesCardEditor extends HTMLElement {
       show_current: true,
       show_more: true,
       columns: 3,
-      scene_option: "Szene",
+      scene_option: "scene",
       ...c,
     };
 
@@ -1114,13 +1123,25 @@ class RoomScenesCardEditor extends HTMLElement {
 
     this._modeGrid.innerHTML = "";
     this._modeHint.textContent = options.length
-      ? "Ein Icon je Option deines input_select. Ohne Icon zeigt der Chip nur den Text."
+      ? "Je Option ein Icon und optional eine Beschriftung. Ohne Beschriftung zeigt " +
+        "der Chip den Wert selbst – bei kleingeschriebenen Werten wie „scene“ lohnt " +
+        "sich hier ein lesbarer Name."
       : "Wähle oben einen input_select, dann erscheinen hier seine Optionen.";
+
+    if (options.length) {
+      for (const text of ["Wert", "Icon", "Beschriftung"]) {
+        const head = document.createElement("div");
+        head.className = "colhead";
+        head.textContent = text;
+        this._modeGrid.appendChild(head);
+      }
+    }
 
     for (const option of options) {
       const label = document.createElement("div");
       label.className = "lbl";
       label.textContent = option;
+      label.title = option;
       this._modeGrid.appendChild(label);
 
       const picker = document.createElement("ha-icon-picker");
@@ -1137,6 +1158,22 @@ class RoomScenesCardEditor extends HTMLElement {
         this._emit({ modes: Object.keys(modes).length ? modes : undefined });
       });
       this._modeGrid.appendChild(picker);
+
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.placeholder = option;
+      nameInput.value = this._config.modes?.[option]?.name ?? "";
+      nameInput.addEventListener("input", () => {
+        const modes = { ...(this._config.modes ?? {}) };
+        const entry = { ...(modes[option] ?? {}) };
+        const v = nameInput.value.trim();
+        if (v) entry.name = v;
+        else delete entry.name;
+        if (Object.keys(entry).length) modes[option] = entry;
+        else delete modes[option];
+        this._emit({ modes: Object.keys(modes).length ? modes : undefined });
+      });
+      this._modeGrid.appendChild(nameInput);
     }
   }
 }

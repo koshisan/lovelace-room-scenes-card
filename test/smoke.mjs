@@ -40,13 +40,25 @@ const walk = (el, out = []) => {
 globalThis.document = { createElement: mkEl, body: mkEl("body") };
 globalThis.window = { customCards: [] };
 let Ctor = null;
+let EditorCtor = null;
 globalThis.customElements = {
-  define(n, c) { if (n === "room-scenes-card") Ctor = c; },
+  define(n, c) {
+    if (n === "room-scenes-card") Ctor = c;
+    if (n === "room-scenes-card-editor") EditorCtor = c;
+  },
   get: () => undefined,
 };
 globalThis.HTMLElement = class {
+  constructor() { this._listeners = {}; }
   attachShadow() { this.shadowRoot = mkEl("shadow-root"); return this.shadowRoot; }
+  addEventListener(ev, fn) { (this._listeners[ev] ||= []).push(fn); }
+  removeEventListener() {}
+  dispatchEvent(ev) { (this._listeners[ev.type] || []).forEach((f) => f(ev)); return true; }
 };
+
+// Loest einen Listener aus, den der Shim sonst nur speichert.
+const fire = (el, type, detail) =>
+  (el._listeners?.[type] || []).forEach((f) => f({ type, detail, stopPropagation() {} }));
 
 const LIB = {
   categories: [{ id: "cat-defaults", name: "Defaults" }],
@@ -169,6 +181,103 @@ const c2 = new Ctor();
 c2.setConfig({ mode_entity: "input_select.gibtsnicht" });
 c2.hass = hass;
 check("Fehlende Entity wird als Meldung gerendert, wirft nicht", true);
+
+/* ---------------------------------------------------------------------------
+ * Visueller Editor
+ * ------------------------------------------------------------------------ */
+
+check("Karte bietet einen Editor an", typeof Ctor.getConfigElement === "function");
+check("Editor ist registriert", typeof EditorCtor === "function");
+
+const ed = new EditorCtor();
+let emitted = null;
+ed.addEventListener("config-changed", (ev) => { emitted = ev.detail.config; });
+
+// Config mit Feldern, die der Editor gar nicht kennt - die muessen ueberleben.
+ed.setConfig({
+  mode_entity: "input_select.wz_modus",
+  favorites: ["Rest", "Relax"],
+  presets: { Sync: { image: "/local/hyperion.png" } },
+  script: { entity: "script.licht_modus_setzen", data: { raum: "wohnzimmer", etage: "og" } },
+});
+ed.hass = hass;
+await new Promise((r) => setTimeout(r, 20));
+
+check("Editor rendert ohne Absturz", ed.shadowRoot.children.length > 0);
+
+const eNodes = walk(ed.shadowRoot);
+const forms = eNodes.filter((n) => n.tagName === "ha-form");
+check("Zwei ha-form-Bloecke (Basis + Schreibweg)", forms.length === 2, `${forms.length}`);
+
+const sceneField = forms[0].schema
+  ?.flatMap((s) => s.schema ?? [s])
+  .find((s) => s.name === "scene_option");
+check(
+  "scene_option wird zur Auswahlliste, sobald der input_select bekannt ist",
+  !!sceneField?.selector?.select?.options?.includes("Szene"),
+  JSON.stringify(sceneField?.selector)
+);
+
+check(
+  "Script-Formular zeigt Entity und raum vorbelegt",
+  forms[1].data?.entity === "script.licht_modus_setzen" && forms[1].data?.raum === "wohnzimmer",
+  JSON.stringify(forms[1].data)
+);
+
+const picker = eNodes.find((n) => n.tagName === "select");
+const optionValues = walk(picker).filter((n) => n.tagName === "option").map((n) => n.value);
+check("Favoriten-Picker listet die Bibliothek", optionValues.includes("Relax"), String(optionValues));
+
+// Favorit hinzufuegen
+picker.value = "Relax";
+fire(picker, "change");
+check(
+  "Favorit hinzufuegen haengt hinten an",
+  JSON.stringify(emitted?.favorites) === JSON.stringify(["Rest", "Relax", "Relax"]),
+  JSON.stringify(emitted?.favorites)
+);
+
+// Der kritische Teil: unbekannte Keys duerfen nicht verschwinden
+check(
+  "presets-Overrides ueberleben eine Editor-Aenderung",
+  emitted?.presets?.Sync?.image === "/local/hyperion.png",
+  JSON.stringify(emitted?.presets)
+);
+check(
+  "zusaetzliche script.data-Felder ueberleben",
+  emitted?.script?.data?.etage === "og",
+  JSON.stringify(emitted?.script)
+);
+
+// Reihenfolge aendern
+ed.setConfig({ ...emitted, favorites: ["Rest", "Relax"] });
+ed._moveFav(0, 1);
+check(
+  "Pfeil runter vertauscht zwei Favoriten",
+  JSON.stringify(emitted?.favorites) === JSON.stringify(["Relax", "Rest"]),
+  JSON.stringify(emitted?.favorites)
+);
+
+// Modus-Icons
+const iconPickers = walk(ed.shadowRoot).filter((n) => n.tagName === "ha-icon-picker");
+check("Ein Icon-Picker je input_select-Option", iconPickers.length === 4, `${iconPickers.length}`);
+fire(iconPickers[2], "value-changed", { value: "mdi:television" });
+check(
+  "Icon-Auswahl landet unter modes.<Option>",
+  emitted?.modes?.Sync?.icon === "mdi:television",
+  JSON.stringify(emitted?.modes)
+);
+
+// Leere Werte sollen nicht als leere Strings in der YAML landen
+ed.setConfig({ mode_entity: "input_select.wz_modus", title: "Weg damit" });
+ed.hass = hass;
+fire(forms[0], "value-changed", { value: { mode_entity: "input_select.wz_modus", title: "" } });
+check(
+  "Leere Felder werden aus der Config entfernt",
+  emitted && !("title" in emitted),
+  JSON.stringify(emitted)
+);
+
 
 console.log("\n  BESTANDEN (" + ok.length + ")");
 ok.forEach((n) => console.log("   ok  " + n));

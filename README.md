@@ -47,6 +47,12 @@ Die Favoriten stehen bewusst fest statt sich nach Häufigkeit umzusortieren. Wan
 
 ## Konfiguration
 
+Die Karte bringt einen **visuellen Editor** mit — Entity-Picker für die Helper, eine Auswahlliste für den Szenenmodus (gefüllt aus den Optionen deines `input_select`), Icon-Picker je Chip und eine Favoritenliste mit Vorschaubildern und Sortierpfeilen.
+
+Was der Editor nicht abbildet — `presets`-Overrides und zusätzliche Felder in `script.data` — bleibt beim Speichern trotzdem erhalten. Du kannst also zwischen YAML und Oberfläche hin- und herwechseln, ohne dass dir etwas verloren geht.
+
+Die vollständige YAML:
+
 ```yaml
 type: custom:room-scenes-card
 title: Wohnzimmer
@@ -136,8 +142,7 @@ Aus demselben Grund triggert die Automation auf **beide** Helper: wechselst du i
 
 ## Bekannte Einschränkungen
 
-- **Kein visueller Editor.** Die Karte wird in YAML konfiguriert.
-- **`ha-dialog` ist frontend-intern.** Das Popup nutzt ein Element, das kein öffentliches API von Home Assistant ist. Seit Jahren stabil, kann sich aber theoretisch mit einem Update ändern. Fällt es weg, bleibt die Karte nutzbar und nur der Bibliotheks-Browser fehlt.
+- **`ha-dialog`, `ha-form` und `ha-icon-picker` sind frontend-intern.** Popup und Editor nutzen Elemente, die kein öffentliches API von Home Assistant sind. Seit Jahren stabil, können sich aber theoretisch mit einem Update ändern. Fällt `ha-dialog` weg, bleibt die Karte nutzbar und nur der Bibliotheks-Browser fehlt; fällt `ha-form` weg, bleibt die YAML-Konfiguration.
 - **Preset-Namen sind nicht garantiert eindeutig.** `presets.json` kann denselben Namen mehrfach vergeben. Die Karte nimmt den ersten Treffer. Wenn du sichergehen willst, trag die UUID ein.
 - **Bei mehreren Räumen wiederholt sich die Karten-YAML.** Wenn dich das stört, hilft [`decluttering-card`](https://github.com/custom-cards/decluttering-card).
 

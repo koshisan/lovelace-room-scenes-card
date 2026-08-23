@@ -8,7 +8,7 @@
  * MIT
  */
 
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.1.0";
 
 const PRESET_DATA_URL = "/assets/scene_presets/scene_presets.json";
 const PRESET_IMG_BASE = "/assets/scene_presets/";
@@ -244,6 +244,10 @@ class RoomScenesCard extends HTMLElement {
           if (this._hass) this._render();
         });
     }
+  }
+
+  static getConfigElement() {
+    return document.createElement("room-scenes-card-editor");
   }
 
   static getStubConfig() {
@@ -645,6 +649,499 @@ class RoomScenesCard extends HTMLElement {
 }
 
 customElements.define("room-scenes-card", RoomScenesCard);
+
+/* -------------------------------------------------------------------------
+ * Visueller Editor
+ *
+ * Die skalaren Felder laufen ueber ha-form, damit Entity-Picker, Zahlen- und
+ * Boolean-Selektoren exakt so aussehen wie in den mitgelieferten Karten.
+ * Favoriten und Modus-Icons bekommen eigene Abschnitte, weil ha-form dafuer
+ * keinen passenden Selektor hat.
+ *
+ * Wichtig: der Editor schreibt immer { ...altesConfig, ...aenderung } zurueck.
+ * Alles, was er nicht kennt - presets-Overrides, zusaetzliche script.data-
+ * Felder - ueberlebt damit eine Runde durch die Oberflaeche unbeschadet.
+ * ---------------------------------------------------------------------- */
+
+const fireEvent = (node, type, detail) =>
+  node.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
+
+const LABELS = {
+  title: "Titel",
+  mode_entity: "Modus (input_select)",
+  preset_entity: "Aktive Szene (input_text)",
+  auto_entity: "Automatik (input_boolean)",
+  history_entity: "Szenen-Verlauf (Sensor, optional)",
+  scene_option: "Welche Option bedeutet Szenenmodus",
+  columns: "Spalten",
+  show_current: "Aktive Szene an erster Stelle",
+  show_more: "„Alle anzeigen“-Link",
+  auto_name: "Beschriftung Automatik",
+  auto_icon: "Icon Automatik",
+  more_name: "Beschriftung des Links",
+  "script.entity": "Script",
+  "script.raum": "Raum (wird als Feld „raum“ uebergeben)",
+};
+
+const EDITOR_STYLES = `
+  .editor { display: flex; flex-direction: column; gap: 20px; padding: 4px 0; }
+
+  section { display: flex; flex-direction: column; gap: 10px; }
+
+  h4 {
+    margin: 0; font-size: 13px; font-weight: 600;
+    letter-spacing: .03em; text-transform: uppercase;
+    color: var(--secondary-text-color);
+  }
+  .hint {
+    margin: -4px 0 0 0; font-size: 12px; line-height: 1.45;
+    color: var(--secondary-text-color);
+  }
+
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 10px;
+    background: var(--secondary-background-color);
+  }
+  .row .grow { flex: 1 1 auto; min-width: 0; }
+  .row .name {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 14px; color: var(--primary-text-color);
+  }
+  .row .sub { font-size: 11px; color: var(--secondary-text-color); }
+  .row.missing { outline: 1px solid var(--error-color, #db4437); }
+
+  .thumb {
+    width: 34px; height: 34px; flex: 0 0 auto;
+    border-radius: 8px; background-size: cover; background-position: center;
+    background-color: var(--card-background-color);
+  }
+
+  .iconbtn {
+    background: none; border: none; cursor: pointer; padding: 4px;
+    display: flex; border-radius: 50%;
+    color: var(--secondary-text-color);
+  }
+  .iconbtn:hover { color: var(--primary-text-color); }
+  .iconbtn[disabled] { opacity: .3; cursor: default; }
+  .iconbtn ha-icon { --mdc-icon-size: 20px; }
+
+  select, input[type="text"] {
+    font-family: inherit; font-size: 14px;
+    padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--divider-color);
+    background: var(--card-background-color);
+    color: var(--primary-text-color);
+    width: 100%; box-sizing: border-box;
+  }
+
+  .modegrid {
+    display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+    gap: 8px; align-items: center;
+  }
+  .modegrid .lbl { font-size: 14px; color: var(--primary-text-color); }
+
+  .empty {
+    font-size: 13px; font-style: italic;
+    color: var(--secondary-text-color); padding: 2px;
+  }
+`;
+
+class RoomScenesCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._lib = null;
+    this._built = false;
+    this._modeSig = null;
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    if (!this._lib) {
+      loadLibrary()
+        .then((lib) => {
+          this._lib = lib;
+          this._renderFavorites();
+        })
+        .catch(() => {
+          /* Ohne Bibliothek bleibt der Favoriten-Picker leer, der Rest
+             funktioniert weiter. Die Karte selbst meldet den Fehler. */
+          this._renderFavorites();
+        });
+    }
+    this._build();
+    this._sync();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._form) this._form.hass = hass;
+    this._sync();
+  }
+
+  /* ---- Config schreiben ---- */
+
+  _emit(patch) {
+    const config = { ...this._config, ...patch };
+    for (const [k, v] of Object.entries(config)) {
+      if (v === undefined || v === null || v === "") delete config[k];
+    }
+    this._config = config;
+    fireEvent(this, "config-changed", { config });
+  }
+
+  /* ---- Aufbau ----
+   *
+   * Einmal bauen, danach nur noch Werte nachziehen. Wuerde der Editor bei
+   * jedem Tastendruck neu rendern, verlaere das Textfeld den Fokus. */
+
+  _build() {
+    if (this._built) return;
+    this._built = true;
+
+    const style = document.createElement("style");
+    style.textContent = EDITOR_STYLES;
+    this.shadowRoot.appendChild(style);
+
+    const wrap = document.createElement("div");
+    wrap.className = "editor";
+    this.shadowRoot.appendChild(wrap);
+
+    /* Grundeinstellungen ueber ha-form */
+    this._form = document.createElement("ha-form");
+    this._form.computeLabel = (s) => LABELS[s.name] ?? s.name;
+    this._form.addEventListener("value-changed", (ev) => {
+      ev.stopPropagation();
+      this._emit(ev.detail.value);
+    });
+    wrap.appendChild(this._form);
+
+    /* Favoriten */
+    const favSection = document.createElement("section");
+    const favHead = document.createElement("h4");
+    favHead.textContent = "Favoriten";
+    favSection.appendChild(favHead);
+    const favHint = document.createElement("p");
+    favHint.className = "hint";
+    favHint.textContent =
+      "Feste Kacheln, in dieser Reihenfolge. Fünf passen gut zu drei Spalten, " +
+      "weil der Slot für die aktive Szene noch dazukommt.";
+    favSection.appendChild(favHint);
+    this._favList = document.createElement("div");
+    this._favList.style.display = "flex";
+    this._favList.style.flexDirection = "column";
+    this._favList.style.gap = "6px";
+    favSection.appendChild(this._favList);
+    this._favPicker = document.createElement("select");
+    this._favPicker.addEventListener("change", () => {
+      const v = this._favPicker.value;
+      this._favPicker.value = "";
+      if (!v) return;
+      this._emit({ favorites: [...(this._config.favorites ?? []), v] });
+      this._renderFavorites();
+    });
+    favSection.appendChild(this._favPicker);
+    wrap.appendChild(favSection);
+
+    /* Modus-Icons */
+    const modeSection = document.createElement("section");
+    const modeHead = document.createElement("h4");
+    modeHead.textContent = "Modus-Chips";
+    modeSection.appendChild(modeHead);
+    this._modeHint = document.createElement("p");
+    this._modeHint.className = "hint";
+    modeSection.appendChild(this._modeHint);
+    this._modeGrid = document.createElement("div");
+    this._modeGrid.className = "modegrid";
+    modeSection.appendChild(this._modeGrid);
+    wrap.appendChild(modeSection);
+
+    /* Script */
+    const scriptSection = document.createElement("section");
+    const scriptHead = document.createElement("h4");
+    scriptHead.textContent = "Schreibweg";
+    scriptSection.appendChild(scriptHead);
+    const scriptHint = document.createElement("p");
+    scriptHint.className = "hint";
+    scriptHint.textContent =
+      "Empfohlen: ein Script als einziger Schreiber der Helper. Bleibt das Feld leer, " +
+      "setzt die Karte input_text und input_select selbst – erst das Preset, dann den Modus.";
+    scriptSection.appendChild(scriptHint);
+    this._scriptForm = document.createElement("ha-form");
+    this._scriptForm.computeLabel = (s) => LABELS["script." + s.name] ?? s.name;
+    this._scriptForm.schema = [
+      { name: "entity", selector: { entity: { filter: [{ domain: "script" }] } } },
+      { name: "raum", selector: { text: {} } },
+    ];
+    this._scriptForm.addEventListener("value-changed", (ev) => {
+      ev.stopPropagation();
+      const { entity, raum } = ev.detail.value;
+      if (!entity) {
+        this._emit({ script: undefined });
+        return;
+      }
+      // Unbekannte Felder des bestehenden script-Blocks bewahren.
+      const prev = this._config.script ?? {};
+      const data = { ...(prev.data ?? {}) };
+      if (raum) data.raum = raum;
+      else delete data.raum;
+      const next = { ...prev, entity };
+      if (Object.keys(data).length) next.data = data;
+      else delete next.data;
+      this._emit({ script: next });
+    });
+    scriptSection.appendChild(this._scriptForm);
+    wrap.appendChild(scriptSection);
+  }
+
+  /* ---- Werte nachziehen ---- */
+
+  _sync() {
+    if (!this._built || !this._config) return;
+    const c = this._config;
+
+    if (this._hass) this._form.hass = this._hass;
+    this._form.schema = this._schema();
+    this._form.data = {
+      show_current: true,
+      show_more: true,
+      columns: 3,
+      scene_option: "Szene",
+      ...c,
+    };
+
+    if (this._hass) this._scriptForm.hass = this._hass;
+    const sc = typeof c.script === "string" ? { entity: c.script } : c.script ?? {};
+    this._scriptForm.data = { entity: sc.entity ?? "", raum: sc.data?.raum ?? "" };
+
+    this._renderFavorites();
+    this._renderModes();
+  }
+
+  _schema() {
+    const options = this._modeOptions();
+    return [
+      { name: "title", selector: { text: {} } },
+      {
+        name: "mode_entity",
+        required: true,
+        selector: { entity: { filter: [{ domain: "input_select" }] } },
+      },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          {
+            name: "preset_entity",
+            selector: { entity: { filter: [{ domain: "input_text" }] } },
+          },
+          {
+            name: "auto_entity",
+            selector: { entity: { filter: [{ domain: "input_boolean" }] } },
+          },
+        ],
+      },
+      {
+        name: "history_entity",
+        selector: { entity: { filter: [{ domain: "sensor" }] } },
+      },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          {
+            name: "scene_option",
+            // Sobald der input_select bekannt ist, wird daraus eine Auswahl
+            // statt eines Textfelds - dann kann man sich nicht mehr vertippen.
+            selector: options.length
+              ? { select: { options, mode: "dropdown" } }
+              : { text: {} },
+          },
+          { name: "columns", selector: { number: { min: 1, max: 8, mode: "box" } } },
+        ],
+      },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "show_current", selector: { boolean: {} } },
+          { name: "show_more", selector: { boolean: {} } },
+        ],
+      },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "auto_name", selector: { text: {} } },
+          { name: "auto_icon", selector: { icon: {} } },
+        ],
+      },
+    ];
+  }
+
+  _modeOptions() {
+    const id = this._config?.mode_entity;
+    return this._hass?.states?.[id]?.attributes?.options ?? [];
+  }
+
+  /* ---- Favoriten ---- */
+
+  _renderFavorites() {
+    if (!this._built) return;
+    const favs = this._config?.favorites ?? [];
+    const list = this._favList;
+    list.innerHTML = "";
+
+    if (!favs.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "Noch keine Favoriten – unten auswählen.";
+      list.appendChild(empty);
+    }
+
+    favs.forEach((fav, i) => {
+      const key = typeof fav === "string" ? fav : fav.preset;
+      const hit =
+        this._lib?.byId.get(key) ?? this._lib?.byName.get(normalise(key)) ?? null;
+
+      const row = document.createElement("div");
+      row.className = "row" + (this._lib && !hit ? " missing" : "");
+
+      const thumb = document.createElement("div");
+      thumb.className = "thumb";
+      if (hit?.img) {
+        thumb.style.backgroundImage = `url("${PRESET_IMG_BASE}${encodeURIComponent(hit.img)}")`;
+      }
+      row.appendChild(thumb);
+
+      const grow = document.createElement("div");
+      grow.className = "grow";
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = hit?.name ?? key;
+      grow.appendChild(name);
+      const sub = document.createElement("div");
+      sub.className = "sub";
+      sub.textContent = this._lib
+        ? hit
+          ? hit.id
+          : "nicht in der Bibliothek gefunden"
+        : "…";
+      grow.appendChild(sub);
+      row.appendChild(grow);
+
+      row.appendChild(
+        this._iconButton("mdi:arrow-up", i === 0, () => this._moveFav(i, -1))
+      );
+      row.appendChild(
+        this._iconButton("mdi:arrow-down", i === favs.length - 1, () =>
+          this._moveFav(i, 1)
+        )
+      );
+      row.appendChild(
+        this._iconButton("mdi:close", false, () => {
+          const next = [...favs];
+          next.splice(i, 1);
+          this._emit({ favorites: next });
+          this._renderFavorites();
+        })
+      );
+
+      list.appendChild(row);
+    });
+
+    /* Auswahlliste neu aufbauen */
+    const picker = this._favPicker;
+    picker.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = this._lib
+      ? "+ Favorit hinzufügen …"
+      : "Bibliothek wird geladen …";
+    picker.appendChild(placeholder);
+    if (!this._lib) return;
+
+    for (const cat of this._lib.categories) {
+      const group = document.createElement("optgroup");
+      group.label = cat.name;
+      let any = false;
+      for (const p of this._lib.presets) {
+        if (p.categoryId !== cat.id) continue;
+        const opt = document.createElement("option");
+        opt.value = p.name;
+        opt.textContent = p.name;
+        group.appendChild(opt);
+        any = true;
+      }
+      if (any) picker.appendChild(group);
+    }
+    picker.value = "";
+  }
+
+  _moveFav(i, delta) {
+    const favs = [...(this._config.favorites ?? [])];
+    const j = i + delta;
+    if (j < 0 || j >= favs.length) return;
+    [favs[i], favs[j]] = [favs[j], favs[i]];
+    this._emit({ favorites: favs });
+    this._renderFavorites();
+  }
+
+  _iconButton(icon, disabled, onClick) {
+    const btn = document.createElement("button");
+    btn.className = "iconbtn";
+    btn.type = "button";
+    if (disabled) btn.setAttribute("disabled", "");
+    else btn.addEventListener("click", onClick);
+    const ic = document.createElement("ha-icon");
+    ic.setAttribute("icon", icon);
+    btn.appendChild(ic);
+    return btn;
+  }
+
+  /* ---- Modus-Icons ----
+   *
+   * Nur neu bauen, wenn sich die Optionen des input_select tatsaechlich
+   * aendern. Sonst wuerde der Icon-Picker bei jedem hass-Update zumachen. */
+
+  _renderModes() {
+    if (!this._built) return;
+    const options = this._modeOptions();
+    const sig = options.join("|");
+    if (sig === this._modeSig) return;
+    this._modeSig = sig;
+
+    this._modeGrid.innerHTML = "";
+    this._modeHint.textContent = options.length
+      ? "Ein Icon je Option deines input_select. Ohne Icon zeigt der Chip nur den Text."
+      : "Wähle oben einen input_select, dann erscheinen hier seine Optionen.";
+
+    for (const option of options) {
+      const label = document.createElement("div");
+      label.className = "lbl";
+      label.textContent = option;
+      this._modeGrid.appendChild(label);
+
+      const picker = document.createElement("ha-icon-picker");
+      picker.hass = this._hass;
+      picker.value = this._config.modes?.[option]?.icon ?? "";
+      picker.addEventListener("value-changed", (ev) => {
+        ev.stopPropagation();
+        const modes = { ...(this._config.modes ?? {}) };
+        const entry = { ...(modes[option] ?? {}) };
+        if (ev.detail.value) entry.icon = ev.detail.value;
+        else delete entry.icon;
+        if (Object.keys(entry).length) modes[option] = entry;
+        else delete modes[option];
+        this._emit({ modes: Object.keys(modes).length ? modes : undefined });
+      });
+      this._modeGrid.appendChild(picker);
+    }
+  }
+}
+
+customElements.define("room-scenes-card-editor", RoomScenesCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({

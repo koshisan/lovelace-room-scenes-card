@@ -1,0 +1,238 @@
+# Beispiel-Package fuer room-scenes-card
+#
+# Ablage: /config/packages/wohnzimmer_licht.yaml
+# Voraussetzung in configuration.yaml:
+#
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# Aufbau:
+#
+#   Helper            halten den Zustand (Modus, Szene, Automatik)
+#   licht_modus_setzen   schreibt die Helper - der einzige Schreibweg
+#   ..._licht_anwenden   liest die Helper und schaltet das Licht
+#   Automationen      verbinden beides
+#
+# Die Trennung von "setzen" und "anwenden" ist keine Kosmetik, siehe die
+# Anmerkung bei der Bewegungs-Automation ganz unten.
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+input_select:
+  wohnzimmer_modus:
+    name: Wohnzimmer Modus
+    icon: mdi:lightbulb-group
+    options:
+      - Aus
+      - Szene
+      - Sync
+      - VR
+      - Circadian
+      - Night
+
+input_text:
+  wohnzimmer_szene:
+    name: Wohnzimmer Szene
+    icon: mdi:palette
+    max: 36 # eine scene_presets-UUID ist exakt 36 Zeichen lang
+
+input_boolean:
+  wohnzimmer_auto:
+    name: Wohnzimmer Automatik
+    icon: mdi:motion-sensor
+
+# ---------------------------------------------------------------------------
+# Verlauf fuer das "Zuletzt benutzt"-Regal im Popup
+#
+# Ein input_text waere hier zu eng: 255 Zeichen fassen nur sechs UUIDs.
+# Attribute eines Template-Sensors haben kein solches Limit, und trigger-
+# basierte Template-Entities stellen ihren Zustand nach einem Neustart
+# selbst wieder her.
+# ---------------------------------------------------------------------------
+
+template:
+  - trigger:
+      - trigger: state
+        entity_id: input_text.wohnzimmer_szene
+    action:
+      - variables:
+          neu: "{{ trigger.to_state.state }}"
+          alt: "{{ state_attr('sensor.wohnzimmer_szenen_verlauf', 'recent') or [] }}"
+    sensor:
+      - name: Wohnzimmer Szenen-Verlauf
+        unique_id: wohnzimmer_szenen_verlauf
+        state: "{{ neu if neu not in ['', 'unknown', 'unavailable'] else 'unknown' }}"
+        attributes:
+          recent: >-
+            {% if neu not in ['', 'unknown', 'unavailable'] %}
+              {{ ([neu] + (alt | reject('eq', neu) | list))[:8] }}
+            {% else %}
+              {{ alt }}
+            {% endif %}
+
+# ---------------------------------------------------------------------------
+# Scripts
+# ---------------------------------------------------------------------------
+
+script:
+  # --- Der einzige Schreiber -------------------------------------------------
+  #
+  # Karte, Fernbedienung, Sprachbefehl und Automationen rufen ausschliesslich
+  # dieses Script. Damit koennen Modus und Szene nicht auseinanderdriften.
+  #
+  # Die Reihenfolge ist Absicht: erst die UUID, dann der Modus. Die Automation
+  # triggert auf den Modus und findet die UUID so garantiert schon vor.
+  licht_modus_setzen:
+    alias: Lichtmodus setzen
+    mode: queued
+    max: 10
+    fields:
+      raum:
+        description: Praefix der Helper, z. B. "wohnzimmer"
+        required: true
+        example: wohnzimmer
+      modus:
+        description: Zu setzende Option des input_select
+        required: true
+        example: Szene
+      preset_id:
+        description: UUID eines scene_presets-Presets (nur bei modus "Szene")
+        required: false
+    sequence:
+      - if:
+          - condition: template
+            value_template: "{{ preset_id is defined and preset_id }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: "input_text.{{ raum }}_szene"
+            data:
+              value: "{{ preset_id }}"
+      - action: input_select.select_option
+        target:
+          entity_id: "input_select.{{ raum }}_modus"
+        data:
+          option: "{{ modus }}"
+
+  # --- Die Lichtlogik --------------------------------------------------------
+  #
+  # Liest nur die Helper und schaltet. Bewusst ohne eigenen Trigger, damit es
+  # sowohl von der Automation als auch direkt vom Bewegungsmelder aufgerufen
+  # werden kann. Pro Raum einmal anlegen - hier stecken die raumspezifischen
+  # Entities drin (Hyperion, Adaptive Lighting, Area).
+  wohnzimmer_licht_anwenden:
+    alias: Wohnzimmer Licht anwenden
+    mode: restart
+    variables:
+      modus: "{{ states('input_select.wohnzimmer_modus') }}"
+      szene: "{{ states('input_text.wohnzimmer_szene') }}"
+    sequence:
+      - choose:
+          - conditions: "{{ modus == 'Aus' }}"
+            sequence:
+              - action: light.turn_off
+                target:
+                  area_id: wohnzimmer
+                data:
+                  transition: 2
+
+          - conditions: "{{ modus == 'Szene' }}"
+            sequence:
+              - condition: template
+                value_template: "{{ szene not in ['', 'unknown', 'unavailable'] }}"
+              - action: scene_presets.apply_preset
+                data:
+                  preset_id: "{{ szene }}"
+                  transition: 2
+                  targets:
+                    area_id: wohnzimmer
+
+          - conditions: "{{ modus == 'Sync' }}"
+            sequence:
+              # hier deine Hyperion-Aktion
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.hyperion_wohnzimmer
+
+          - conditions: "{{ modus == 'VR' }}"
+            sequence:
+              - action: light.turn_on
+                target:
+                  area_id: wohnzimmer
+                data:
+                  brightness_pct: 15
+                  color_temp_kelvin: 2200
+                  transition: 3
+
+          - conditions: "{{ modus == 'Circadian' }}"
+            sequence:
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.adaptive_lighting_wohnzimmer
+
+          - conditions: "{{ modus == 'Night' }}"
+            sequence:
+              - action: light.turn_on
+                target:
+                  area_id: wohnzimmer
+                data:
+                  brightness_pct: 3
+                  color_temp_kelvin: 2000
+                  transition: 5
+
+# ---------------------------------------------------------------------------
+# Automationen
+# ---------------------------------------------------------------------------
+
+automation:
+  # Zwei Trigger, und das ist wichtig: waehlst du im Szenenmodus ein anderes
+  # Preset, aendert sich nur der input_text - der input_select behaelt seinen
+  # Wert und feuert nicht. Ohne den zweiten Trigger wuerde die neue Szene
+  # schlicht nicht angewendet.
+  #
+  # Doppelt ausgeloest wird trotzdem nichts: beim Wechsel aus einem anderen
+  # Modus feuert zuerst der input_text (die Lichtlogik sieht dann noch den
+  # alten Modus) und danach der input_select mit dem fertigen Zustand.
+  - alias: Wohnzimmer Licht bei Zustandswechsel
+    id: wohnzimmer_licht_zustandswechsel
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: input_select.wohnzimmer_modus
+      - trigger: state
+        entity_id: input_text.wohnzimmer_szene
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.to_state.state not in ['unknown', 'unavailable'] }}"
+    actions:
+      - action: script.wohnzimmer_licht_anwenden
+
+  # Bewegungsmelder respektiert den Automatik-Schalter der Karte und stellt
+  # genau den Zustand wieder her, der in den Helpern steht.
+  #
+  # Hier ruft der Melder bewusst das Anwenden-Script direkt auf, nicht
+  # licht_modus_setzen. Der Grund: Home Assistant unterdrueckt Schreibvorgaenge,
+  # die den Zustand nicht veraendern (StateMachine.async_set steigt bei
+  # gleichem state und gleichen Attributen sofort aus). Denselben Modus
+  # erneut zu setzen wuerde also kein state_changed ausloesen und die
+  # Automation oben nie erreichen - das Licht bliebe aus.
+  - alias: Wohnzimmer Bewegung
+    id: wohnzimmer_bewegung
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.wohnzimmer_bewegung
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.wohnzimmer_auto
+        state: "on"
+      - condition: not
+        conditions:
+          - condition: state
+            entity_id: input_select.wohnzimmer_modus
+            state: Aus
+    actions:
+      - action: script.wohnzimmer_licht_anwenden

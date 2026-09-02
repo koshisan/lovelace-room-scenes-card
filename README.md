@@ -105,6 +105,7 @@ favorites:
 | `show_current` | bool | `true` | Aktiv-Slot an erster Stelle. |
 | `show_more` | bool | `true` | „Alle anzeigen"-Link. |
 | `auto_name` / `auto_icon` | string | `Auto` / `mdi:motion-sensor` | Beschriftung des Automatik-Chips. |
+| `dialog_id` | string | – | Kennung, unter der andere Karten das Popup öffnen können. Siehe unten. |
 | `script` | map | – | Siehe unten. |
 
 ### `script`
@@ -121,6 +122,54 @@ script:
 ```
 
 Ohne `script` schreibt die Karte `preset_entity` und `mode_entity` direkt — erst das Preset, dann den Modus.
+
+## Popup von außen öffnen
+
+Das Popup lässt sich von jeder anderen Karte aus aufrufen — Long-Press auf eine Bubble Card, Tap auf ein Icon, was du willst. Home Assistant liefert dafür die Aktion `fire-dom-event`.
+
+Der Weg über eine `dialog_id` ist der kürzere. Die Karte bekommt eine ID:
+
+```yaml
+type: custom:room-scenes-card
+dialog_id: wohnzimmer
+mode_entity: input_select.wohnzimmer_modus
+# … Rest wie gehabt
+```
+
+und jede andere Karte kann sie dann ansprechen:
+
+```yaml
+type: custom:bubble-card
+card_type: button
+entity: light.wohnzimmer
+hold_action:
+  action: fire-dom-event
+  room_scenes_card:
+    id: wohnzimmer
+```
+
+Kurzform, wenn du nur die ID brauchst: `room_scenes_card: wohnzimmer`.
+
+**Das setzt voraus, dass die Karte auf der gerade sichtbaren Ansicht liegt.** Nur dann existiert eine Instanz, die sich registriert hat. Verlässt du die Ansicht, meldet sie sich wieder ab.
+
+Für den Fall gibt es den zweiten Weg: die Konfiguration direkt ins Event schreiben. Das funktioniert überall, auch ohne sichtbare Karte.
+
+```yaml
+hold_action:
+  action: fire-dom-event
+  room_scenes_card:
+    mode_entity: input_select.wohnzimmer_modus
+    preset_entity: input_text.wohnzimmer_szene
+    scene_option: scene
+    script:
+      entity: script.licht_modus_setzen
+      data:
+        raum: wohnzimmer
+```
+
+Findet die Karte weder eine passende `dialog_id` noch ein `mode_entity` im Event, schreibt sie eine Warnung in die Browser-Konsole und tut sonst nichts.
+
+Ein Unterschied bleibt zwischen beiden Wegen: über `dialog_id` läuft das Popup an einer echten Karteninstanz, die weiter `hass`-Updates bekommt — die Markierung der aktiven Szene bleibt live. Beim Weg über die Inline-Konfiguration entsteht eine Instanz nur für diesen Moment; ändert sich die Szene währenddessen von außen, zieht die Markierung erst beim nächsten Öffnen nach.
 
 ## Helper, Script und Automationen
 
@@ -144,7 +193,7 @@ Aus demselben Grund triggert die Automation auf **beide** Helper: wechselst du i
 
 ## Bekannte Einschränkungen
 
-- **`ha-dialog`, `ha-form` und `ha-icon-picker` sind frontend-intern.** Popup und Editor nutzen Elemente, die kein öffentliches API von Home Assistant sind. Seit Jahren stabil, können sich aber theoretisch mit einem Update ändern. Fällt `ha-dialog` weg, bleibt die Karte nutzbar und nur der Bibliotheks-Browser fehlt; fällt `ha-form` weg, bleibt die YAML-Konfiguration.
+- **`ha-dialog`, `ha-form`, `ha-icon-picker` und `ll-custom` sind frontend-intern.** Popup und Editor nutzen Elemente, die kein öffentliches API von Home Assistant sind. Seit Jahren stabil, können sich aber theoretisch mit einem Update ändern. Fällt `ha-dialog` weg, bleibt die Karte nutzbar und nur der Bibliotheks-Browser fehlt; fällt `ha-form` weg, bleibt die YAML-Konfiguration.
 - **Preset-Namen sind nicht garantiert eindeutig.** `presets.json` kann denselben Namen mehrfach vergeben. Die Karte nimmt den ersten Treffer. Wenn du sichergehen willst, trag die UUID ein.
 - **Bei mehreren Räumen wiederholt sich die Karten-YAML.** Wenn dich das stört, hilft [`decluttering-card`](https://github.com/custom-cards/decluttering-card).
 

@@ -44,7 +44,13 @@ const walk = (el, out = []) => {
 };
 
 globalThis.document = { createElement: mkEl, body: mkEl("body") };
-globalThis.window = { customCards: [] };
+const winListeners = {};
+globalThis.window = {
+  customCards: [],
+  addEventListener(t, f) { (winListeners[t] ||= []).push(f); },
+  removeEventListener() {},
+  dispatchEvent(ev) { (winListeners[ev.type] || []).forEach((f) => f(ev)); return true; },
+};
 let Ctor = null;
 let EditorCtor = null;
 globalThis.customElements = {
@@ -387,6 +393,96 @@ check(
 dlgTiles[1].click();
 check("Auswahl im Popup schliesst den Dialog", !card._dialog);
 check("Shadow Root wird mit aufgeraeumt", !card._dialogRoot);
+
+
+/* ---------------------------------------------------------------------------
+ * Popup von aussen oeffnen (fire-dom-event -> ll-custom)
+ * ------------------------------------------------------------------------ */
+
+const llCustom = (detail) =>
+  window.dispatchEvent({ type: "ll-custom", detail });
+
+// Fremde fire-dom-event-Aktionen duerfen uns nicht stoeren
+card._closeDialog();
+llCustom({ browser_mod: { service: "browser_mod.popup" } });
+check("fremdes ll-custom wird ignoriert", !card._dialog);
+
+// Weg 1: ueber die dialog_id einer gerenderten Karte
+card.setConfig({
+  dialog_id: "wohnzimmer",
+  mode_entity: "input_select.wz_modus",
+  preset_entity: "input_text.wz_szene",
+  scene_option: "scene",
+  favorites: ["Rest"],
+});
+card.connectedCallback();
+card.hass = hass;
+
+llCustom({ room_scenes_card: { id: "wohnzimmer" } });
+check("dialog_id oeffnet das Popup der registrierten Karte", !!card._dialog);
+check("und zwar an genau dieser Instanz", !!card._dialogRoot);
+card._closeDialog();
+
+// Kurzform: nur der String
+llCustom({ room_scenes_card: "wohnzimmer" });
+check("Kurzform mit blossem String funktioniert auch", !!card._dialog);
+card._closeDialog();
+
+// Unbekannte id ohne Inline-Config: Warnung statt Absturz
+const warnings = [];
+const origWarn = console.warn;
+console.warn = (...a) => warnings.push(a.join(" "));
+llCustom({ room_scenes_card: { id: "gibtsnicht" } });
+console.warn = origWarn;
+check("unbekannte dialog_id warnt, statt zu werfen", warnings.length === 1, String(warnings));
+check(
+  "die Warnung nennt beide Auswege",
+  /dialog_id|mode_entity/.test(warnings[0] ?? ""),
+  warnings[0]
+);
+
+// Weg 2: Konfiguration direkt im Event, ohne gerenderte Karte
+globalThis.document.querySelector = (sel) =>
+  sel === "home-assistant" ? { hass } : null;
+
+const before = walk(document.body).length;
+llCustom({
+  room_scenes_card: {
+    mode_entity: "input_select.wz_modus",
+    preset_entity: "input_text.wz_szene",
+    scene_option: "scene",
+  },
+});
+await new Promise((r) => setTimeout(r, 20));
+const dialogs = document.body.children.filter((n) => n.tagName === "ha-dialog");
+check(
+  "Inline-Config oeffnet ein Popup ohne gerenderte Karte",
+  dialogs.length >= 1,
+  `${dialogs.length} Dialoge, vorher ${before} Knoten`
+);
+
+// walk folgt absichtlich keinem Shadow Root - sonst waere der Light-DOM-Check
+// oben wertlos. Hier also gezielt in den Shadow Root des Dialogs steigen.
+const ghostHost = dialogs[dialogs.length - 1].children.find((n) => n.shadowRoot);
+const ghostTiles = ghostHost
+  ? walk(ghostHost.shadowRoot).filter((n) => n.classList.contains("tile"))
+  : [];
+check(
+  "auch das Popup ohne Karte ist korrekt gestylt",
+  ghostTiles.length === 2 && ghostTiles.every((t) => t.classList.contains("browse")),
+  `${ghostTiles.length} Kacheln`
+);
+
+// Fehlende Pflichtangabe darf nicht durchschlagen
+const errors = [];
+const origErr = console.error;
+console.error = (...a) => errors.push(a.join(" "));
+llCustom({ room_scenes_card: { preset_entity: "input_text.wz_szene" } });
+console.error = origErr;
+check(
+  "Inline-Config ohne mode_entity wird abgefangen",
+  warnings.length + errors.length >= 1
+);
 
 
 console.log("\n  BESTANDEN (" + ok.length + ")");

@@ -8,7 +8,7 @@
  * MIT
  */
 
-const CARD_VERSION = "1.2.1";
+const CARD_VERSION = "1.3.0";
 
 const PRESET_DATA_URL = "/assets/scene_presets/scene_presets.json";
 const PRESET_IMG_BASE = "/assets/scene_presets/";
@@ -51,6 +51,13 @@ function loadLibrary() {
   }
   return _libraryPromise;
 }
+
+/* Karten mit dialog_id, damit das Popup von aussen geoeffnet werden kann.
+   Muss vor der Klasse stehen: customElements.define() upgradet bereits im
+   Dokument vorhandene Elemente sofort, und connectedCallback greift darauf
+   zu - eine Deklaration weiter unten waere dann noch in der Temporal Dead
+   Zone. */
+const DIALOG_REGISTRY = new Map();
 
 const normalise = (s) => String(s ?? "").trim().toLowerCase();
 const asList = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
@@ -260,6 +267,7 @@ class RoomScenesCard extends HTMLElement {
     this._signature = null;
     this._error = null;
     this._closeDialog();
+    this._registerDialogId();
 
     if (!this._lib) {
       loadLibrary()
@@ -604,7 +612,20 @@ class RoomScenesCard extends HTMLElement {
    * nur der Bibliotheks-Browser fehlt dann. */
 
   _openDialog() {
-    if (!this._lib || this._dialog) return;
+    if (this._dialog) return;
+    if (!this._lib) {
+      // Von aussen geoeffnet kann die Bibliothek noch unterwegs sein.
+      loadLibrary()
+        .then((lib) => {
+          this._lib = lib;
+          this._openDialog();
+        })
+        .catch((err) => {
+          this._error = err.message;
+          this._render();
+        });
+      return;
+    }
     if (!customElements.get("ha-dialog")) {
       this._error = "ha-dialog nicht verfuegbar - Popup wird uebersprungen";
       this._render();
@@ -693,12 +714,115 @@ class RoomScenesCard extends HTMLElement {
     }
   }
 
+  /* ---- Registrierung fuer das Oeffnen von aussen ---- */
+
+  connectedCallback() {
+    this._registerDialogId();
+  }
+
   disconnectedCallback() {
     this._closeDialog();
+    if (this._dialogKey && DIALOG_REGISTRY.get(this._dialogKey) === this) {
+      DIALOG_REGISTRY.delete(this._dialogKey);
+    }
+    this._dialogKey = null;
+  }
+
+  _registerDialogId() {
+    const id = this._config?.dialog_id;
+    if (this._dialogKey && this._dialogKey !== id) {
+      if (DIALOG_REGISTRY.get(this._dialogKey) === this) {
+        DIALOG_REGISTRY.delete(this._dialogKey);
+      }
+      this._dialogKey = null;
+    }
+    if (id) {
+      DIALOG_REGISTRY.set(id, this);
+      this._dialogKey = id;
+    }
   }
 }
 
 customElements.define("room-scenes-card", RoomScenesCard);
+
+/* -------------------------------------------------------------------------
+ * Popup von aussen oeffnen
+ *
+ * Home Assistant kennt die Aktion "fire-dom-event": sie feuert ein
+ * ll-custom-Event mit der Aktions-Konfiguration als detail, und weil HAs
+ * fireEvent bubbles und composed setzt, kommt es bis ans window. Damit kann
+ * jede beliebige Karte - Bubble Card, tile, button - den Szenen-Browser
+ * oeffnen:
+ *
+ *   hold_action:
+ *     action: fire-dom-event
+ *     room_scenes_card:
+ *       id: wohnzimmer
+ *
+ * Zwei Wege, an die noetige Konfiguration zu kommen:
+ *
+ *   id     verweist auf eine Karte mit passender dialog_id. Setzt voraus,
+ *          dass die Karte auf der gerade angezeigten Ansicht liegt - nur
+ *          dann existiert eine Instanz, die sich registriert hat. Dafuer
+ *          bleibt die Markierung der aktiven Szene live.
+ *
+ *   inline die gleichen Felder wie in der Karten-YAML. Funktioniert
+ *          ueberall, auch ohne sichtbare Karte.
+ * ---------------------------------------------------------------------- */
+
+/* Das <home-assistant>-Element traegt das hass-Objekt. Frontend-intern, aber
+   der ueblich gegangene Weg, wenn man keine Karteninstanz hat. */
+function findHass() {
+  return document.querySelector("home-assistant")?.hass ?? null;
+}
+
+function openSceneBrowser(payload) {
+  const cfg = typeof payload === "string" ? { id: payload } : { ...payload };
+  const id = cfg.id;
+  delete cfg.id;
+
+  const registered = id ? DIALOG_REGISTRY.get(id) : null;
+  if (registered) {
+    registered._openDialog();
+    return;
+  }
+
+  if (!cfg.mode_entity) {
+    console.warn(
+      `room-scenes-card: keine Karte mit dialog_id "${id}" auf dieser Ansicht ` +
+        "und keine mode_entity im Event. Entweder die Karte auf diese Ansicht " +
+        "legen oder die Konfiguration direkt ins fire-dom-event schreiben."
+    );
+    return;
+  }
+
+  const hass = findHass();
+  if (!hass) {
+    console.warn("room-scenes-card: hass nicht gefunden, Popup nicht moeglich");
+    return;
+  }
+
+  // Eine Instanz ohne Platz im Dokument. Sie rendert in ihren eigenen,
+  // nirgends eingehaengten Shadow Root; sichtbar wird nur der Dialog, den
+  // _openDialog an document.body haengt.
+  const card = new RoomScenesCard();
+  try {
+    card.setConfig(cfg);
+  } catch (err) {
+    console.error("room-scenes-card:", err.message);
+    return;
+  }
+  card.hass = hass;
+  card._openDialog();
+}
+
+window.addEventListener("ll-custom", (ev) => {
+  // ll-custom feuert fuer jede fire-dom-event-Aktion im ganzen Frontend.
+  // Ohne unseren Schluessel ist das Event nicht fuer uns bestimmt.
+  const payload = ev.detail?.room_scenes_card;
+  if (payload) openSceneBrowser(payload);
+});
+
 
 /* -------------------------------------------------------------------------
  * Visueller Editor

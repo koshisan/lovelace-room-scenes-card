@@ -8,6 +8,7 @@ Gedacht für Setups, in denen ein Raum mehrere Lichtmodi hat, die *keine* Szenen
 ┌─────────────────────────────────────────────┐
 │  ( Aus ) ( Sync ) (•VR•) ( Circadian )       │
 │  ( Night )                      [ ⚡ Auto ]  │
+│  ☀ ━━━━━━━━━━━━━━━●──────────────  62 %     │
 ├─────────────────────────────────────────────┤
 │  ┌───────┐ ┌───────┐ ┌───────┐              │
 │  │ AKTIV │ │ Fav 1 │ │ Fav 2 │              │
@@ -23,6 +24,7 @@ Gedacht für Setups, in denen ein Raum mehrere Lichtmodi hat, die *keine* Szenen
 
 - **Modus-Chips** aus den `options` deines `input_select`. Optik über die CSS-Variablen von [Bubble Card](https://github.com/Clooos/Bubble-Card), mit Rückfall auf die normalen HA-Theme-Variablen, wenn Bubble Card nicht installiert ist.
 - **Automatik-Schalter** für einen `input_boolean` rechts in derselben Zeile.
+- **Helligkeits-Slider** (optional) für einen `input_number`, der gleichzeitig als Override dient — 0 heißt erzwungen aus, alles darüber erzwungen an. Siehe [Helligkeit als Override](#helligkeit-als-override).
 - **Fünf feste Favoriten** plus einem Slot ganz vorn, der immer die aktuelle Szene zeigt. Läuft gerade ein anderer Modus, steht dort die zuletzt benutzte Szene, gedimmt — ein Tap genügt zum Zurückwechseln.
 - **Popup** mit der kompletten Bibliothek, nach Kategorien sortiert, optional mit einem „Zuletzt benutzt"-Regal. Dort sitzt die Beschriftung unter dem Bild statt darauf — beim Stöbern will man die Farben sehen, nicht den Namen.
 - **Thumbnails kommen von selbst.** Die Karte liest `/assets/scene_presets/scene_presets.json` (die Integration stellt die View ohne Auth bereit) und löst Presets über ihren Namen auf. Du schreibst `Rest`, nicht `e03267e7-9914-4f47-97fe-63c0bd317fe7`.
@@ -60,6 +62,7 @@ title: Wohnzimmer
 mode_entity: input_select.wohnzimmer_modus
 preset_entity: input_text.wohnzimmer_szene
 auto_entity: input_boolean.wohnzimmer_auto
+brightness_entity: input_number.wohnzimmer_helligkeit
 history_entity: sensor.wohnzimmer_szenen_verlauf
 
 scene_option: scene
@@ -95,6 +98,7 @@ favorites:
 | `mode_entity` | string | — | **Pflicht.** Der `input_select` mit deinen Modi. |
 | `preset_entity` | string | – | `input_text`, in dem die aktive Preset-UUID steht. Ohne ihn entfällt der Aktiv-Slot. |
 | `auto_entity` | string | – | `input_boolean` für den Automatik-Chip. |
+| `brightness_entity` | string | – | `input_number` (oder `number`) für den Helligkeits-Slider. Ohne ihn entfällt die Zeile. |
 | `history_entity` | string | – | Sensor mit einem `recent`-Attribut für das „Zuletzt benutzt"-Regal im Popup. |
 | `title` | string | – | Überschrift. Weglassen blendet die Kopfzeile aus. |
 | `scene_option` | string | `scene` | Welche Option des `input_select` den Szenenmodus bedeutet. |
@@ -105,6 +109,8 @@ favorites:
 | `show_current` | bool | `true` | Aktiv-Slot an erster Stelle. |
 | `show_more` | bool | `true` | „Alle anzeigen"-Link. |
 | `auto_name` / `auto_icon` | string | `Auto` / `mdi:motion-sensor` | Beschriftung des Automatik-Chips. |
+| `brightness_icon` | string | `mdi:brightness-6` | Icon vor dem Slider. |
+| `brightness_off_name` | string | `Aus` | Anzeige, wenn der Slider auf dem Minimum steht. |
 | `dialog_id` | string | – | Kennung, unter der andere Karten das Popup öffnen können. Siehe unten. |
 | `script` | map | – | Siehe unten. |
 
@@ -122,6 +128,22 @@ script:
 ```
 
 Ohne `script` schreibt die Karte `preset_entity` und `mode_entity` direkt — erst das Preset, dann den Modus.
+
+## Helligkeit als Override
+
+Ein binärer Automatik-Schalter kann nur sagen „die Automatik entscheidet“ oder „niemand entscheidet“. Was fehlt, ist „ich entscheide, und zwar so“ — Licht erzwungen an oder erzwungen aus, auch wenn der Präsenzmelder etwas anderes meint. Ein weiterer `input_select` dafür wäre hässlich. Die Helligkeit trägt die Information schon:
+
+| Automatik | Helligkeit | Bedeutung |
+|---|---|---|
+| an | *(wird gespiegelt)* | Präsenz entscheidet, der Slider zeigt die echte Helligkeit – gedimmt dargestellt |
+| aus | `0` | erzwungen aus, egal wer im Raum ist |
+| aus | `1`–`100` | erzwungen an, mit genau dieser Helligkeit |
+
+Die Karte **schreibt beim Loslassen nur den Wert** in den `input_number`. Sie schaltet die Automatik nicht selbst ab — das ist Aufgabe der Steuerung dahinter (Node-RED, Automation, …): sie erkennt, dass der Wert nicht von ihr selbst kam, und nimmt den Auto-Schalter zurück. So bleibt es bei einem einzigen Schreiber, der über „Automatik ja/nein“ entscheidet. Zurück zur Automatik geht es über den Auto-Chip.
+
+Solange die Automatik läuft, sollte die Steuerung die tatsächliche Helligkeit in den Helper spiegeln. Dann zeigt der Slider immer die Wahrheit, und Anfassen ist schon der Override — kein Umschalten vorher nötig.
+
+Der Slider ist bewusst **nicht** Teil des Render-Fingerabdrucks: ändert sich die Helligkeit, zieht die Karte nur den Slider an Ort und Stelle nach, statt sich neu aufzubauen. Während man zieht, ignoriert sie eingehende Werte ganz — sonst spränge der Knopf unter dem Finger zurück, sobald der Spiegel nachschreibt.
 
 ## Popup von außen öffnen
 

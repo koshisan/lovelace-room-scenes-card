@@ -196,6 +196,76 @@ c2.hass = hass;
 check("Fehlende Entity wird als Meldung gerendert, wirft nicht", true);
 
 /* ---------------------------------------------------------------------------
+ * Helligkeit / Override
+ * ------------------------------------------------------------------------ */
+
+hass.states["input_number.wz_hell"] = {
+  state: "62.0", attributes: { min: 0, max: 100, step: 1, unit_of_measurement: "%" },
+};
+hass.states["input_boolean.wz_auto"] = { state: "on", attributes: {} };
+const bc = new Ctor();
+bc.setConfig({
+  mode_entity: "input_select.wz_modus",
+  auto_entity: "input_boolean.wz_auto",
+  brightness_entity: "input_number.wz_hell",
+});
+await new Promise((r) => setTimeout(r, 20));
+bc.hass = hass;
+
+const briRow = () => walk(bc.shadowRoot).find((n) => n.classList.contains("bri"));
+const briInput = () => walk(briRow()).find((n) => n.tagName === "input");
+const briVal = () => walk(briRow()).find((n) => n.classList.contains("val"));
+
+check("Helligkeits-Zeile wird gerendert", !!briRow());
+check("Slider steht auf dem Helper-Wert", Number(briInput()?.value) === 62, briInput()?.value);
+check("Anzeige zeigt 62 %", briVal()?.textContent === "62 %", briVal()?.textContent);
+check("Auto an -> Slider gedimmt", briRow().classList.contains("auto"));
+check("Fuellstand als CSS-Variable", briInput().style.getPropertyValue("--rsc-fill") === "62%");
+
+// Helligkeit aendert sich (Spiegel) -> kein Neuaufbau, Wert in place
+let bRenders = 0;
+const bOrig = bc._render.bind(bc);
+bc._render = () => { bRenders++; bOrig(); };
+const rowBefore = briRow();
+hass.states["input_number.wz_hell"] = { ...hass.states["input_number.wz_hell"], state: "40.0" };
+bc.hass = hass;
+check("Helligkeits-Aenderung baut die Karte nicht neu", bRenders === 0, `${bRenders} Renders`);
+check("… sondern zieht den Slider in place nach", briRow() === rowBefore && Number(briInput().value) === 40);
+
+// Beim Ziehen darf ein hass-Update den Wert nicht zuruecksetzen
+briInput().value = 25;
+fire(briInput(), "input");
+hass.states["input_number.wz_hell"] = { ...hass.states["input_number.wz_hell"], state: "41.0" };
+bc.hass = hass;
+check("Waehrend des Ziehens bleibt der Slider, wo der Finger ist", Number(briInput().value) === 25, briInput().value);
+check("Anzeige folgt dem Finger", briVal().textContent === "25 %", briVal().textContent);
+
+// Loslassen schreibt genau einmal den Wert - und fasst Auto NICHT an
+calls.length = 0;
+fire(briInput(), "change");
+check(
+  "Loslassen setzt den input_number",
+  calls.length === 1 && calls[0].d === "input_number" && calls[0].s === "set_value" &&
+    calls[0].data.value === 25 && calls[0].data.entity_id === "input_number.wz_hell",
+  JSON.stringify(calls)
+);
+check("Karte schaltet Auto nicht selbst ab", !calls.some((c) => c.d === "input_boolean"));
+
+// Auto aus + 0 -> "Aus", nicht mehr gedimmt
+hass.states["input_boolean.wz_auto"] = { state: "off", attributes: {} };
+hass.states["input_number.wz_hell"] = { ...hass.states["input_number.wz_hell"], state: "0.0" };
+bc.hass = hass;
+check("Auto aus -> Slider nicht mehr gedimmt", !briRow().classList.contains("auto"));
+check("0 wird als „Aus“ angezeigt", briVal().textContent === "Aus", briVal().textContent);
+check("0 markiert die Zeile als aus", briRow().classList.contains("off"));
+
+// Ohne brightness_entity bleibt alles wie vorher
+check("Ohne brightness_entity keine Helligkeits-Zeile",
+  !walk(card.shadowRoot).some((n) => n.classList.contains("bri")));
+hass.states["input_boolean.wz_auto"] = { state: "on", attributes: {} };
+
+
+/* ---------------------------------------------------------------------------
  * Visueller Editor
  * ------------------------------------------------------------------------ */
 
@@ -229,6 +299,15 @@ check(
   "scene_option wird zur Auswahlliste, sobald der input_select bekannt ist",
   !!sceneField?.selector?.select?.options?.includes("scene"),
   JSON.stringify(sceneField?.selector)
+);
+
+const briField = forms[0].schema
+  ?.flatMap((s) => s.schema ?? [s])
+  .find((s) => s.name === "brightness_entity");
+check(
+  "Editor bietet brightness_entity mit input_number-Filter an",
+  JSON.stringify(briField?.selector?.entity?.filter ?? []).includes("input_number"),
+  JSON.stringify(briField)
 );
 
 check(

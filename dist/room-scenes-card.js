@@ -8,7 +8,7 @@
  * MIT
  */
 
-const CARD_VERSION = "1.3.0";
+const CARD_VERSION = "1.4.0";
 
 const PRESET_DATA_URL = "/assets/scene_presets/scene_presets.json";
 const PRESET_IMG_BASE = "/assets/scene_presets/";
@@ -121,6 +121,51 @@ const STYLES = `
   }
 
   .chip.auto { margin-inline-start: auto; }
+
+  /* ---- Helligkeit ----
+     Solange die Automatik entscheidet, zeigt der Slider nur an (gedimmt).
+     Anfassen ist trotzdem erlaubt - das ist genau der Override. */
+  .bri {
+    display: flex; align-items: center; gap: 10px;
+    height: var(--bubble-sub-button-height, 36px);
+    padding: 0 12px;
+    border-radius: var(--bubble-sub-button-border-radius,
+                   var(--bubble-border-radius, 18px));
+    background-color: var(--bubble-sub-button-background-color,
+                      var(--bubble-icon-background-color,
+                      var(--bubble-secondary-background-color,
+                      var(--card-background-color,
+                      var(--ha-card-background, var(--secondary-background-color))))));
+    transition: opacity .3s ease-in-out;
+  }
+  .bri ha-icon { --mdc-icon-size: 18px; color: var(--secondary-text-color); flex: 0 0 auto; }
+  .bri .val {
+    flex: 0 0 auto; min-width: 38px; text-align: end;
+    font-size: 12px; font-variant-numeric: tabular-nums;
+    color: var(--primary-text-color);
+  }
+  .bri.auto input, .bri.auto .val { opacity: .55; }
+  .bri.off .val { color: var(--secondary-text-color); }
+
+  .bri input {
+    flex: 1 1 auto; min-width: 0; margin: 0;
+    height: 6px; border-radius: 3px; cursor: pointer;
+    -webkit-appearance: none; appearance: none; background: none;
+    --rsc-accent: var(--bubble-accent-color, var(--bubble-default-color, var(--accent-color)));
+    --rsc-track: var(--divider-color, rgba(127,127,127,.3));
+    background: linear-gradient(to right,
+      var(--rsc-accent) 0 var(--rsc-fill, 0%),
+      var(--rsc-track) var(--rsc-fill, 0%) 100%);
+  }
+  .bri input::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 18px; height: 18px; border-radius: 50%; border: none;
+    background: var(--rsc-accent); box-shadow: 0 1px 3px rgba(0,0,0,.35);
+  }
+  .bri input::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%; border: none;
+    background: var(--rsc-accent); box-shadow: 0 1px 3px rgba(0,0,0,.35);
+  }
 
   /* ---- Preset-Raster ---- */
   .grid { display: grid; gap: var(--rsc-gap); }
@@ -299,7 +344,8 @@ class RoomScenesCard extends HTMLElement {
 
   getCardSize() {
     const tiles = (this._config?.favorites?.length ?? 0) + 1;
-    return 2 + Math.ceil(tiles / (this._config?.columns ?? 3)) * 2;
+    const bri = this._config?.brightness_entity ? 1 : 0;
+    return 2 + bri + Math.ceil(tiles / (this._config?.columns ?? 3)) * 2;
   }
 
   /* ---- hass-Updates ----
@@ -312,7 +358,13 @@ class RoomScenesCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     const sig = this._buildSignature();
-    if (sig === this._signature) return;
+    if (sig === this._signature) {
+      // Die Helligkeit ist bewusst nicht Teil der Signatur: sie aendert sich,
+      // waehrend man zieht, und ein Neuaufbau risse einem den Slider unter
+      // dem Finger weg. Sie wird an Ort und Stelle nachgezogen.
+      this._updateBrightness();
+      return;
+    }
     this._signature = sig;
     this._render();
     this._refreshDialogSelection();
@@ -413,6 +465,89 @@ class RoomScenesCard extends HTMLElement {
     });
   }
 
+  /* Die Karte schreibt nur den Wert. Dass die Automatik dabei ausgeht, ist
+     Sache der Steuerung dahinter - sonst gaebe es wieder zwei Schreiber, die
+     ueber den Auto-Zustand entscheiden. */
+  _setBrightness(value) {
+    const id = this._config.brightness_entity;
+    if (!id || !this._hass) return;
+    const domain = id.split(".")[0];
+    this._hass.callService(domain, "set_value", { entity_id: id, value: Number(value) });
+  }
+
+  _brightnessRow() {
+    const c = this._config;
+    const row = document.createElement("div");
+    row.className = "bri";
+
+    const icon = document.createElement("ha-icon");
+    icon.setAttribute("icon", c.brightness_icon ?? "mdi:brightness-6");
+    row.appendChild(icon);
+
+    const input = document.createElement("input");
+    input.type = "range";
+    input.setAttribute("aria-label", c.brightness_name ?? "Helligkeit");
+    row.appendChild(input);
+
+    const val = document.createElement("span");
+    val.className = "val";
+    row.appendChild(val);
+
+    // Waehrend des Ziehens kommen laufend hass-Updates. Die duerfen den Wert
+    // nicht zuruecksetzen, bis losgelassen wurde.
+    const release = () => { this._briDragging = false; };
+    input.addEventListener("pointerdown", () => { this._briDragging = true; });
+    input.addEventListener("pointerup", release);
+    input.addEventListener("pointercancel", release);
+    input.addEventListener("input", () => {
+      this._briDragging = true;
+      this._paintBrightness(Number(input.value));
+    });
+    input.addEventListener("change", () => {
+      release();
+      this._setBrightness(input.value);
+    });
+
+    this._bri = { row, input, val };
+    this._updateBrightness(true);
+    return row;
+  }
+
+  _updateBrightness(force = false) {
+    const c = this._config;
+    const b = this._bri;
+    if (!b || !this._hass || !c?.brightness_entity) return;
+    if (this._briDragging && !force) return;
+
+    const s = this._hass.states[c.brightness_entity];
+    const a = s?.attributes ?? {};
+    b.input.min = a.min ?? 0;
+    b.input.max = a.max ?? 100;
+    b.input.step = a.step ?? 1;
+    const v = Number(s?.state);
+    b.input.value = Number.isFinite(v) ? v : 0;
+    b.input.disabled = !s || s.state === "unavailable";
+
+    const auto = c.auto_entity ? this._hass.states[c.auto_entity]?.state === "on" : false;
+    b.row.classList.toggle("auto", auto);
+    b.row.title = auto
+      ? "Automatik aktiv - anfassen setzt einen Override"
+      : "Override - Automatik ist aus";
+    this._paintBrightness(Number(b.input.value));
+  }
+
+  _paintBrightness(v) {
+    const b = this._bri;
+    if (!b) return;
+    const min = Number(b.input.min) || 0;
+    const max = Number(b.input.max) || 100;
+    const pct = max > min ? ((v - min) / (max - min)) * 100 : 0;
+    b.input.style.setProperty("--rsc-fill", `${pct}%`);
+    b.row.classList.toggle("off", v <= min);
+    const unit = this._hass?.states[this._config.brightness_entity]?.attributes?.unit_of_measurement ?? "%";
+    b.val.textContent = v <= min ? (this._config.brightness_off_name ?? "Aus") : `${Math.round(v)} ${unit}`;
+  }
+
   /* ---- Rendern ---- */
 
   _render() {
@@ -498,6 +633,9 @@ class RoomScenesCard extends HTMLElement {
       chip.addEventListener("click", () => this._toggleAuto());
       chips.appendChild(chip);
     }
+
+    this._bri = null;
+    if (c.brightness_entity) wrap.appendChild(this._brightnessRow());
 
     if (this._error) wrap.appendChild(this._message(this._error));
     if (!this._lib) return;
@@ -846,6 +984,7 @@ const LABELS = {
   preset_entity: "Aktive Szene (input_text)",
   auto_entity: "Automatik (input_boolean)",
   history_entity: "Szenen-Verlauf (Sensor, optional)",
+  brightness_entity: "Helligkeit / Override (input_number, optional)",
   scene_option: "Welche Option bedeutet Szenenmodus",
   columns: "Spalten",
   show_current: "Aktive Szene an erster Stelle",
@@ -1124,6 +1263,10 @@ class RoomScenesCardEditor extends HTMLElement {
             selector: { entity: { filter: [{ domain: "input_boolean" }] } },
           },
         ],
+      },
+      {
+        name: "brightness_entity",
+        selector: { entity: { filter: [{ domain: ["input_number", "number"] }] } },
       },
       {
         name: "history_entity",

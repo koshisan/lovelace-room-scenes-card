@@ -11,6 +11,7 @@ const mkEl = (tag) => {
     classList: {
       _s: new Set(),
       add(...c) { c.forEach((x) => this._s.add(x)); },
+      remove(...c) { c.forEach((x) => this._s.delete(x)); },
       toggle(c, on) { on ? this._s.add(c) : this._s.delete(c); },
       contains(c) { return this._s.has(c); },
     },
@@ -319,8 +320,36 @@ check("mini: Modus als Dropdown", !!sel && walk(sel).filter((n) => n.tagName ===
 check("mini: Dropdown steht auf dem aktiven Modus", sel?.value === "scene", sel?.value);
 check("mini: runder Auto-Knopf", mn.some((n) => n.classList.contains("auto") && n.classList.contains("round")));
 const stripTiles = walk(mn.find((n) => n.classList.contains("strip")) ?? mkEl("x")).filter((n) => n.classList.contains("tile"));
-check("mini: Szenen-Streifen = aktiver Slot + 2 Favoriten + 'Alle'", stripTiles.length === 4, `${stripTiles.length}`);
-check("mini: letzte Kachel öffnet die Bibliothek", stripTiles[3]?.classList.contains("more-tile"));
+check("mini: Szenen-Streifen = aktiver Slot + 2 Favoriten", stripTiles.length === 3, `${stripTiles.length}`);
+const moreBtnMini = walk(mn.find((n) => n.classList.contains("head"))).find((n) => n.classList.contains("more-btn"));
+check("mini: Bibliothek als Knopf in der Kopfzeile (immer erreichbar)", !!moreBtnMini);
+
+// Scrollen ohne Touch: Mausrad und Ziehen
+const strip = mn.find((n) => n.classList.contains("strip"));
+const emit = (el, type, props = {}) => {
+  let prevented = false;
+  (el._listeners?.[type] || []).forEach((f) => f({ type, ...props, preventDefault() { prevented = true; }, stopPropagation() {} }));
+  return prevented;
+};
+Object.assign(strip, { scrollLeft: 0, scrollWidth: 600, clientWidth: 300 });
+let prevented = emit(strip, "wheel", { deltaY: 100, deltaX: 0 });
+check("mini: Mausrad scrollt den Streifen seitlich", strip.scrollLeft === 100 && prevented, `${strip.scrollLeft} ${prevented}`);
+strip.scrollLeft = 300;
+prevented = emit(strip, "wheel", { deltaY: 100, deltaX: 0 });
+check("mini: am Ende gibt das Mausrad an die Seite ab", strip.scrollLeft === 300 && !prevented, `${strip.scrollLeft} ${prevented}`);
+strip.scrollLeft = 100;
+emit(strip, "pointerdown", { pointerType: "mouse", button: 0, clientX: 200, pointerId: 1 });
+emit(strip, "pointermove", { clientX: 140, pointerId: 1 });
+check("mini: Ziehen mit der Maus scrollt", strip.scrollLeft === 160, `${strip.scrollLeft}`);
+emit(strip, "pointerup", { pointerId: 1 });
+check("mini: nach dem Ziehen wird der Klick geschluckt", mc._swallowClick === true);
+let stopped = false;
+(strip._listeners.click || []).forEach((f) => f({ stopPropagation() { stopped = true; }, preventDefault() {} }));
+check("… und zwar genau einmal", stopped && mc._swallowClick === false);
+strip.scrollLeft = 100;
+emit(strip, "pointerdown", { pointerType: "touch", button: 0, clientX: 200, pointerId: 2 });
+emit(strip, "pointermove", { clientX: 100, pointerId: 2 });
+check("mini: Touch bleibt dem Browser überlassen", strip.scrollLeft === 100, `${strip.scrollLeft}`);
 const bar = mn.find((n) => n.classList.contains("bri") && n.classList.contains("bar"));
 check("mini: Helligkeit als Balken", !!bar);
 const barFill = walk(bar).find((n) => n.classList.contains("fill"));

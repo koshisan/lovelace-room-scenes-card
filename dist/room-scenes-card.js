@@ -8,7 +8,7 @@
  * MIT
  */
 
-const CARD_VERSION = "1.5.0";
+const CARD_VERSION = "1.5.1";
 
 const PRESET_DATA_URL = "/assets/scene_presets/scene_presets.json";
 const PRESET_IMG_BASE = "/assets/scene_presets/";
@@ -332,6 +332,9 @@ const STYLES = `
     margin: 0 -12px; padding: 0 12px;
   }
   .strip::-webkit-scrollbar { display: none; }
+  .strip.dragging { scroll-snap-type: none; cursor: grabbing; user-select: none; }
+  .strip.dragging .tile { pointer-events: none; }
+  @media (hover: hover) and (pointer: fine) { .strip { cursor: grab; } }
   .strip .tile { flex: 0 0 104px; scroll-snap-align: start; }
   .strip .tile:hover { transform: none; }
   .strip .tile .badge { display: none; }          /* der Rahmen reicht - das Abzeichen verdeckt hier das Bild */
@@ -945,39 +948,84 @@ class RoomScenesCard extends HTMLElement {
     const caret = document.createElement("ha-icon");
     caret.setAttribute("icon", "mdi:menu-down");
     sel.appendChild(caret);
-    this._head(wrap, sel, this._autoButton(true));
+
+    // Bibliothek als eigener Knopf oben - am Ende des Streifens wäre er bei mehr als
+    // drei, vier Favoriten nur per Scrollen erreichbar
+    let more = null;
+    if (c.show_more) {
+      more = document.createElement("button");
+      more.type = "button";
+      more.className = "chip round more-btn";
+      more.title = c.more_name ?? "Alle Szenen";
+      const mi = document.createElement("ha-icon");
+      mi.setAttribute("icon", c.more_icon ?? "mdi:view-grid-outline");
+      more.appendChild(mi);
+      more.addEventListener("click", () => this._openDialog());
+    }
+    this._head(wrap, sel, more, this._autoButton(true));
 
     if (this._error) wrap.appendChild(this._message(this._error));
     if (this._lib) {
       const strip = document.createElement("div");
       strip.className = "strip";
       for (const e of this._presetEntries(ctx)) strip.appendChild(e.empty ? this._emptyTile() : this._tile(e.preset, e));
-      if (c.show_more) strip.appendChild(this._moreTile());   // am Ende: die ganze Bibliothek
+      this._scrollable(strip);
       wrap.appendChild(strip);
     }
 
     if (c.brightness_entity) wrap.appendChild(this._brightnessRow("bar"));
   }
 
-  _moreTile() {
-    const tile = document.createElement("button");
-    tile.type = "button";
-    tile.className = "tile more-tile";
-    const swatch = document.createElement("div");
-    swatch.className = "swatch";
-    const fb = document.createElement("div");
-    fb.className = "fallback";
-    const icon = document.createElement("ha-icon");
-    icon.setAttribute("icon", "mdi:dots-horizontal");
-    fb.appendChild(icon);
-    swatch.appendChild(fb);
-    tile.appendChild(swatch);
-    const label = document.createElement("div");
-    label.className = "label";
-    label.textContent = this._config.more_name ?? "Alle …";
-    tile.appendChild(label);
-    tile.addEventListener("click", () => this._openDialog());
-    return tile;
+  /* Seitlich scrollen auch ohne Touch: Mausrad (senkrecht -> seitlich) und Ziehen
+     mit der Maus. Am Anfang/Ende gibt das Rad an die Seite ab, sonst hinge man fest.
+     Nach einem Ziehen wird der folgende Klick geschluckt - sonst waehlte das Loslassen
+     ueber einer Kachel versehentlich deren Szene. */
+  _scrollable(strip) {
+    strip.addEventListener("wheel", (ev) => {
+      if (Math.abs(ev.deltaY) <= Math.abs(ev.deltaX)) return;       // echtes Seitwärts-Scrollen: Browser macht's
+      const max = strip.scrollWidth - strip.clientWidth;
+      if (max <= 0) return;
+      const atStart = strip.scrollLeft <= 0 && ev.deltaY < 0;
+      const atEnd = strip.scrollLeft >= max - 1 && ev.deltaY > 0;
+      if (atStart || atEnd) return;
+      strip.scrollLeft += ev.deltaY;
+      ev.preventDefault();
+    }, { passive: false });
+
+    let drag = null;
+    strip.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType !== "mouse" || ev.button !== 0) return;     // Touch scrollt nativ
+      drag = { x: ev.clientX, left: strip.scrollLeft, moved: false };
+    });
+    strip.addEventListener("pointermove", (ev) => {
+      if (!drag) return;
+      const dx = ev.clientX - drag.x;
+      if (!drag.moved && Math.abs(dx) < 5) return;
+      if (!drag.moved) {
+        drag.moved = true;
+        strip.classList.add("dragging");
+        try { strip.setPointerCapture(ev.pointerId); } catch (e) { /* Zeiger unbekannt - Ziehen geht trotzdem */ }
+      }
+      strip.scrollLeft = drag.left - dx;
+    });
+    const end = (ev) => {
+      if (!drag) return;
+      if (drag.moved) {
+        strip.classList.remove("dragging");
+        try { strip.releasePointerCapture(ev.pointerId); } catch (e) { /* war nicht gefangen */ }
+        this._swallowClick = true;
+        setTimeout(() => { this._swallowClick = false; }, 0);
+      }
+      drag = null;
+    };
+    strip.addEventListener("pointerup", end);
+    strip.addEventListener("pointercancel", end);
+    strip.addEventListener("click", (ev) => {
+      if (!this._swallowClick) return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      this._swallowClick = false;
+    }, true);
   }
 
   _message(text) {

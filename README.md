@@ -137,7 +137,7 @@ Drei Darstellungen derselben Karte – gleiche Konfiguration, gleiche Aktionen, 
 ```
 standard                         kompakt  (≈ 240 px)              mini  (≈ 170 px)
 ┌──────────────────────────┐    ┌──────────────────────────┐    ┌──────────────────────────┐
-│ (Aus)(Sync)(•Circ•) [Auto]│    │ Küche             [🚶Auto]│    │ Küche      [scene ▾] (🚶)│
+│ (Aus)(Sync)(•Circ•) [Auto]│    │ Küche             [🚶Auto]│    │ Küche  [scene ▾] (▦) (🚶)│
 │ ☀ ━━━━━●─────────  62 %  │    │ [ off |circ|•scene|sync ]│    │ ┌───┐┌───┐┌───┐┌───┐┌─ → │
 │ ┌────┐ ┌────┐ ┌────┐     │    │ ☀ ━━●──────────────  Aus │    │ │   ││   ││   ││   ││    │
 │ │AKTV│ │Fav1│ │Fav2│     │    │ [▣ Light Cy…][▣ Rest][▣ …]│    │ └───┘└───┘└───┘└───┘└─   │
@@ -147,7 +147,7 @@ standard                         kompakt  (≈ 240 px)              mini  (≈ 1
 
 - **standard** – Modus-Chips, darunter ein Raster großer Kacheln. Für ein eigenes Tablet oder einen Raum, in dem man oft Szenen wechselt.
 - **kompakt** – Titel mit Auto-Pill, Modi als Segmentleiste, Szenen als Listen-Chips (Vorschaubild links, Name rechts). Gleiche Funktionen, gut die Hälfte der Höhe.
-- **mini** – Modus als Dropdown, Automatik als runder Knopf, Szenen scrollen seitlich (am Ende „Alle …“ für die Bibliothek), Helligkeit als flacher Balken: die ganze Fläche ist der Slider, die Füllung zeigt den Wert. Für Übersichts-Dashboards mit vielen Räumen.
+- **mini** – Modus als Dropdown, Bibliothek und Automatik als runde Knöpfe, Szenen scrollen seitlich, Helligkeit als flacher Balken: die ganze Fläche ist der Slider, die Füllung zeigt den Wert. Für Übersichts-Dashboards mit vielen Räumen. Der Streifen scrollt per Touch, Mausrad und Ziehen mit der Maus; ein Ziehen wählt keine Szene aus. Icon des Bibliotheks-Knopfs über `more_icon` (Default `mdi:view-grid-outline`).
 
 `columns` gilt für `standard` und `kompakt`. Der Helligkeits-Slider verhält sich in allen Layouts gleich (siehe unten).
 

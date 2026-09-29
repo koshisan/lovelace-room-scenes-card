@@ -100,7 +100,8 @@ favorites:
 | `auto_entity` | string | – | `input_boolean` für den Automatik-Chip. |
 | `brightness_entity` | string | – | `input_number` (oder `number`) für den Helligkeits-Slider. Ohne ihn entfällt die Zeile. |
 | `history_entity` | string | – | Sensor mit einem `recent`-Attribut für das „Zuletzt benutzt"-Regal im Popup. |
-| `title` | string | – | Überschrift. Weglassen blendet die Kopfzeile aus. |
+| `title` | string | – | Überschrift. Weglassen blendet die Kopfzeile aus (in `kompakt`/`mini` bleibt die Zeile für die Knöpfe). |
+| `layout` | string | `standard` | `standard`, `kompakt` oder `mini` – siehe [Layouts](#layouts). |
 | `scene_option` | string | `scene` | Welche Option des `input_select` den Szenenmodus bedeutet. |
 | `columns` | number | `3` | Spalten im Raster. |
 | `favorites` | list | `[]` | Preset-Namen oder UUIDs. |
@@ -128,6 +129,27 @@ script:
 ```
 
 Ohne `script` schreibt die Karte `preset_entity` und `mode_entity` direkt — erst das Preset, dann den Modus.
+
+## Layouts
+
+Drei Darstellungen derselben Karte – gleiche Konfiguration, gleiche Aktionen, gleiches Popup. Umschalten per `layout:` oder im Editor.
+
+```
+standard                         kompakt  (≈ 240 px)              mini  (≈ 170 px)
+┌──────────────────────────┐    ┌──────────────────────────┐    ┌──────────────────────────┐
+│ (Aus)(Sync)(•Circ•) [Auto]│    │ Küche             [🚶Auto]│    │ Küche      [scene ▾] (🚶)│
+│ ☀ ━━━━━●─────────  62 %  │    │ [ off |circ|•scene|sync ]│    │ ┌───┐┌───┐┌───┐┌───┐┌─ → │
+│ ┌────┐ ┌────┐ ┌────┐     │    │ ☀ ━━●──────────────  Aus │    │ │   ││   ││   ││   ││    │
+│ │AKTV│ │Fav1│ │Fav2│     │    │ [▣ Light Cy…][▣ Rest][▣ …]│    │ └───┘└───┘└───┘└───┘└─   │
+│ └────┘ └────┘ └────┘     │    │ [▣ Read    ][▣ Nigh][▣ …]│    │ [☀ Helligkeit ▓▓▓░░  45 %]│
+└──────────────────────────┘    └──────────────────────────┘    └──────────────────────────┘
+```
+
+- **standard** – Modus-Chips, darunter ein Raster großer Kacheln. Für ein eigenes Tablet oder einen Raum, in dem man oft Szenen wechselt.
+- **kompakt** – Titel mit Auto-Pill, Modi als Segmentleiste, Szenen als Listen-Chips (Vorschaubild links, Name rechts). Gleiche Funktionen, gut die Hälfte der Höhe.
+- **mini** – Modus als Dropdown, Automatik als runder Knopf, Szenen scrollen seitlich (am Ende „Alle …“ für die Bibliothek), Helligkeit als flacher Balken: die ganze Fläche ist der Slider, die Füllung zeigt den Wert. Für Übersichts-Dashboards mit vielen Räumen.
+
+`columns` gilt für `standard` und `kompakt`. Der Helligkeits-Slider verhält sich in allen Layouts gleich (siehe unten).
 
 ## Helligkeit als Override
 

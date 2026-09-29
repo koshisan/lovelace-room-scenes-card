@@ -266,6 +266,86 @@ hass.states["input_boolean.wz_auto"] = { state: "on", attributes: {} };
 
 
 /* ---------------------------------------------------------------------------
+ * Layouts "kompakt" und "mini"
+ * ------------------------------------------------------------------------ */
+
+const layoutCfg = (layout) => ({
+  title: "Küche", layout,
+  mode_entity: "input_select.wz_modus", preset_entity: "input_text.wz_szene",
+  auto_entity: "input_boolean.wz_auto", brightness_entity: "input_number.wz_hell",
+  scene_option: "scene", favorites: ["Rest", "uuid-relax"],
+  modes: { aus: { name: "Aus" } },
+});
+hass.states["input_select.wz_modus"] = { state: "scene", attributes: { options: ["aus", "scene", "sync", "vr"] } };
+hass.states["input_text.wz_szene"] = { state: "uuid-relax", attributes: {} };
+hass.states["input_number.wz_hell"] = { state: "40.0", attributes: { min: 0, max: 100, step: 1, unit_of_measurement: "%" } };
+
+// kompakt
+const kc = new Ctor();
+kc.setConfig(layoutCfg("kompakt"));
+await new Promise((r) => setTimeout(r, 20));
+kc.hass = hass;
+const kn = walk(kc.shadowRoot);
+const segBtns = walk(kn.find((n) => n.classList.contains("seg")) ?? mkEl("x")).filter((n) => n.tagName === "button");
+check("kompakt: Segmentleiste mit einem Knopf je Modus", segBtns.length === 4, `${segBtns.length}`);
+check("kompakt: aktiver Modus markiert", segBtns[1]?.classList.contains("active") && !segBtns[0].classList.contains("active"));
+check("kompakt: Modus-Beschriftung aus modes.name", segBtns[0]?.textContent === "Aus", segBtns[0]?.textContent);
+const khead = kn.find((n) => n.classList.contains("head"));
+check("kompakt: Auto-Pill in der Kopfzeile", walk(khead).some((n) => n.classList.contains("auto")));
+const lchips = kn.filter((n) => n.classList.contains("lchip"));
+check("kompakt: Listen-Chips = aktiver Slot + 2 Favoriten", lchips.length === 3, `${lchips.length}`);
+check("kompakt: aktive Szene hat den Rahmen", lchips[0].classList.contains("current") && lchips[2].classList.contains("current"));
+check("kompakt: Chip zeigt Namen", walk(lchips[1]).some((n) => n.classList.contains("lname") && n.textContent === "Rest"));
+check("kompakt: Helligkeits-Slider ist da", kn.some((n) => n.classList.contains("bri") && !n.classList.contains("bar")));
+check("kompakt: keine Standard-Chips/-Kacheln", !kn.some((n) => n.classList.contains("chips") || n.classList.contains("grid")));
+calls.length = 0;
+segBtns[2].click();
+await new Promise((r) => setTimeout(r, 10));
+check("kompakt: Segment-Klick setzt den Modus", calls.some((x) => x.d === "input_select" && x.data.option === "sync"), JSON.stringify(calls));
+calls.length = 0;
+lchips[1].click();
+await new Promise((r) => setTimeout(r, 10));
+check("kompakt: Chip-Klick wählt die Szene (erst Preset, dann Modus)",
+  calls[0]?.d === "input_text" && calls[0]?.data.value === "uuid-rest" && calls[1]?.data.option === "scene", JSON.stringify(calls));
+
+// mini
+const mc = new Ctor();
+mc.setConfig(layoutCfg("mini"));
+await new Promise((r) => setTimeout(r, 20));
+mc.hass = hass;
+const mn = walk(mc.shadowRoot);
+const sel = mn.find((n) => n.tagName === "select");
+check("mini: Modus als Dropdown", !!sel && walk(sel).filter((n) => n.tagName === "option").length === 4);
+check("mini: Dropdown steht auf dem aktiven Modus", sel?.value === "scene", sel?.value);
+check("mini: runder Auto-Knopf", mn.some((n) => n.classList.contains("auto") && n.classList.contains("round")));
+const stripTiles = walk(mn.find((n) => n.classList.contains("strip")) ?? mkEl("x")).filter((n) => n.classList.contains("tile"));
+check("mini: Szenen-Streifen = aktiver Slot + 2 Favoriten + 'Alle'", stripTiles.length === 4, `${stripTiles.length}`);
+check("mini: letzte Kachel öffnet die Bibliothek", stripTiles[3]?.classList.contains("more-tile"));
+const bar = mn.find((n) => n.classList.contains("bri") && n.classList.contains("bar"));
+check("mini: Helligkeit als Balken", !!bar);
+const barFill = walk(bar).find((n) => n.classList.contains("fill"));
+check("mini: Balken-Füllung zeigt den Wert", barFill?.style.width === "40%", barFill?.style.width);
+calls.length = 0;
+sel.value = "sync";
+fire(sel, "change");
+await new Promise((r) => setTimeout(r, 10));
+check("mini: Dropdown-Wechsel setzt den Modus", calls.some((x) => x.d === "input_select" && x.data.option === "sync"), JSON.stringify(calls));
+// Helligkeit ändert sich -> Balken in place, kein Neuaufbau
+let mr = 0; const mo = mc._render.bind(mc); mc._render = () => { mr++; mo(); };
+hass.states["input_number.wz_hell"] = { ...hass.states["input_number.wz_hell"], state: "75.0" };
+mc.hass = hass;
+check("mini: Helligkeit zieht den Balken in place nach", mr === 0 && barFill.style.width === "75%", `${mr} Renders, ${barFill.style.width}`);
+
+// unbekanntes Layout -> Standard
+const sc = new Ctor();
+sc.setConfig({ ...layoutCfg("quatsch") });
+await new Promise((r) => setTimeout(r, 20));
+sc.hass = hass;
+check("unbekanntes Layout fällt auf Standard zurück", walk(sc.shadowRoot).some((n) => n.classList.contains("chips")));
+hass.states["input_select.wz_modus"] = { state: "scene", attributes: { options: ["aus", "scene", "sync", "vr"] } };
+
+
+/* ---------------------------------------------------------------------------
  * Visueller Editor
  * ------------------------------------------------------------------------ */
 

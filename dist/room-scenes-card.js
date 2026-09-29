@@ -8,7 +8,7 @@
  * MIT
  */
 
-const CARD_VERSION = "1.4.0";
+const CARD_VERSION = "1.5.0";
 
 const PRESET_DATA_URL = "/assets/scene_presets/scene_presets.json";
 const PRESET_IMG_BASE = "/assets/scene_presets/";
@@ -60,6 +60,10 @@ function loadLibrary() {
 const DIALOG_REGISTRY = new Map();
 
 const normalise = (s) => String(s ?? "").trim().toLowerCase();
+
+// Layout-Namen (deutsch und englisch akzeptiert)
+const LAYOUTS = { "": "standard", standard: "standard", default: "standard",
+                  kompakt: "kompakt", compact: "kompakt", mini: "mini" };
 const asList = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
 /* -------------------------------------------------------------------------
@@ -248,6 +252,106 @@ const STYLES = `
     padding: 8px 4px; font-size: 13px;
     color: var(--error-color, #db4437);
   }
+
+  /* =========================================================================
+   * Layouts "kompakt" und "mini"
+   * ====================================================================== */
+
+  :host {
+    --rsc-surface: var(--bubble-sub-button-background-color,
+                   var(--bubble-icon-background-color,
+                   var(--bubble-secondary-background-color,
+                   var(--card-background-color,
+                   var(--ha-card-background, var(--secondary-background-color))))));
+    --rsc-accent-c: var(--bubble-accent-color, var(--bubble-default-color, var(--accent-color)));
+    --rsc-on-accent: var(--bubble-sub-button-dark-text-color, var(--text-accent-color, #000));
+  }
+
+  .head .chip.auto { flex: 0 0 auto; }
+  .chip.round { width: var(--bubble-sub-button-height, 36px); padding: 0; border-radius: 50%; }
+
+  /* ---- kompakt: Segmentleiste ---- */
+  .seg {
+    display: flex; gap: 4px; padding: 4px;
+    border-radius: var(--bubble-border-radius, 16px);
+    background: var(--rsc-surface);
+  }
+  .seg button {
+    flex: 1 1 0; min-width: 0; height: 34px; padding: 0 6px;
+    border: none; border-radius: 12px; cursor: pointer;
+    background: none; color: var(--primary-text-color);
+    font-family: inherit; font-size: 13px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    transition: background-color .25s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .seg button:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
+  .seg button.active { background: var(--rsc-accent-c); color: var(--rsc-on-accent); font-weight: 500; }
+
+  /* ---- kompakt: Szenen als Listen-Chips ---- */
+  .lgrid { display: grid; gap: var(--rsc-gap); }
+  .lchip {
+    display: flex; align-items: center; gap: 10px; min-width: 0;
+    padding: 6px; border: none; cursor: pointer; text-align: start;
+    border-radius: 14px; background: var(--rsc-surface);
+    color: var(--primary-text-color); font-family: inherit; font-size: 14px; font-weight: 500;
+    transition: opacity .3s ease, transform .15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .lchip:active { transform: scale(.97); }
+  .lchip .thumb {
+    position: relative; flex: 0 0 auto; width: 44px; height: 44px; border-radius: 10px;
+    background-color: var(--secondary-background-color);
+    background-size: cover; background-position: center;
+  }
+  .lchip .thumb .fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--secondary-text-color); --mdc-icon-size: 22px; }
+  .lchip .lname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lchip.current {
+    box-shadow: inset 0 0 0 2px var(--rsc-accent-c);
+    background: color-mix(in srgb, var(--rsc-accent-c) 16%, var(--rsc-surface));
+  }
+  .lchip.dimmed { opacity: .45; }
+
+  /* ---- mini: Modus als Dropdown ---- */
+  .modesel { position: relative; flex: 0 0 auto; }
+  .modesel select {
+    appearance: none; -webkit-appearance: none; cursor: pointer;
+    height: var(--bubble-sub-button-height, 36px); padding: 0 30px 0 14px;
+    border: none; border-radius: var(--bubble-sub-button-border-radius, 18px);
+    background: var(--rsc-surface); color: var(--primary-text-color);
+    font-family: inherit; font-size: 14px;
+  }
+  .modesel ha-icon { position: absolute; inset-inline-end: 8px; top: 50%; transform: translateY(-50%);
+    --mdc-icon-size: 18px; pointer-events: none; color: var(--secondary-text-color); }
+
+  /* ---- mini: Szenen seitlich scrollend ---- */
+  .strip {
+    display: flex; gap: var(--rsc-gap); overflow-x: auto; overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory; scrollbar-width: none;
+    margin: 0 -12px; padding: 0 12px;
+  }
+  .strip::-webkit-scrollbar { display: none; }
+  .strip .tile { flex: 0 0 104px; scroll-snap-align: start; }
+  .strip .tile:hover { transform: none; }
+  .strip .tile .badge { display: none; }          /* der Rahmen reicht - das Abzeichen verdeckt hier das Bild */
+  .strip .tile .label { font-size: 13px; font-weight: 600; padding-bottom: 7px; }
+
+  /* ---- mini: Helligkeit als flacher Balken (ganze Fläche ist der Slider) ---- */
+  .bri.bar { position: relative; overflow: hidden; gap: 8px; }
+  .bri.bar .fill {
+    position: absolute; inset: 0 auto 0 0; width: 0; pointer-events: none;
+    background: color-mix(in srgb, var(--rsc-accent-c) 38%, transparent);
+  }
+  .bri.bar ha-icon, .bri.bar .lbl, .bri.bar .val { position: relative; pointer-events: none; }
+  .bri.bar .lbl { flex: 1 1 auto; font-size: 13px; color: var(--primary-text-color); }
+  .bri.bar .val { font-weight: 600; }
+  .bri.bar input {
+    position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+    opacity: 0; cursor: ew-resize;
+  }
+  .bri.bar.auto .fill { opacity: .55; }
+  .bri.bar.auto input { opacity: 0; }     /* der Standard-Stil dimmt das input - hier bleibt es unsichtbar */
 `;
 
 /* Der Dialog haengt an document.body, also ausserhalb des Shadow DOM der
@@ -343,9 +447,13 @@ class RoomScenesCard extends HTMLElement {
   }
 
   getCardSize() {
-    const tiles = (this._config?.favorites?.length ?? 0) + 1;
-    const bri = this._config?.brightness_entity ? 1 : 0;
-    return 2 + bri + Math.ceil(tiles / (this._config?.columns ?? 3)) * 2;
+    const c = this._config ?? {};
+    const tiles = (c.favorites?.length ?? 0) + 1;
+    const bri = c.brightness_entity ? 1 : 0;
+    const layout = LAYOUTS[normalise(c.layout)] ?? "standard";
+    if (layout === "mini") return 2 + bri + 2;                           // Kopf, Streifen, Balken
+    if (layout === "kompakt") return 2 + bri + Math.ceil(tiles / (c.columns ?? 3));
+    return 2 + bri + Math.ceil(tiles / (c.columns ?? 3)) * 2;
   }
 
   /* ---- hass-Updates ----
@@ -475,14 +583,30 @@ class RoomScenesCard extends HTMLElement {
     this._hass.callService(domain, "set_value", { entity_id: id, value: Number(value) });
   }
 
-  _brightnessRow() {
+  /* variant "bar": flacher Balken wie im Mini-Layout - die ganze Fläche ist der
+     Slider, die Füllung zeigt den Wert. Sonst die normale Slider-Zeile. */
+  _brightnessRow(variant = "slider") {
     const c = this._config;
     const row = document.createElement("div");
-    row.className = "bri";
+    row.className = variant === "bar" ? "bri bar" : "bri";
+
+    let fill = null;
+    if (variant === "bar") {
+      fill = document.createElement("div");
+      fill.className = "fill";
+      row.appendChild(fill);
+    }
 
     const icon = document.createElement("ha-icon");
     icon.setAttribute("icon", c.brightness_icon ?? "mdi:brightness-6");
     row.appendChild(icon);
+
+    if (variant === "bar") {
+      const lbl = document.createElement("span");
+      lbl.className = "lbl";
+      lbl.textContent = c.brightness_name ?? "Helligkeit";
+      row.appendChild(lbl);
+    }
 
     const input = document.createElement("input");
     input.type = "range";
@@ -508,7 +632,7 @@ class RoomScenesCard extends HTMLElement {
       this._setBrightness(input.value);
     });
 
-    this._bri = { row, input, val };
+    this._bri = { row, input, val, fill };
     this._updateBrightness(true);
     return row;
   }
@@ -543,6 +667,7 @@ class RoomScenesCard extends HTMLElement {
     const max = Number(b.input.max) || 100;
     const pct = max > min ? ((v - min) / (max - min)) * 100 : 0;
     b.input.style.setProperty("--rsc-fill", `${pct}%`);
+    if (b.fill) b.fill.style.width = `${pct}%`;
     b.row.classList.toggle("off", v <= min);
     const unit = this._hass?.states[this._config.brightness_entity]?.attributes?.unit_of_measurement ?? "%";
     b.val.textContent = v <= min ? (this._config.brightness_off_name ?? "Aus") : `${Math.round(v)} ${unit}`;
@@ -578,6 +703,12 @@ class RoomScenesCard extends HTMLElement {
     const activeMode = modeState.state;
     const sceneActive = activeMode === c.scene_option;
     const activePresetId = c.preset_entity ? hass.states[c.preset_entity]?.state : null;
+    const ctx = { modeState, activeMode, sceneActive, activePresetId };
+
+    this._bri = null;
+    const layout = LAYOUTS[normalise(c.layout)] ?? "standard";
+    if (layout === "kompakt") return this._renderCompact(wrap, ctx);
+    if (layout === "mini") return this._renderMini(wrap, ctx);
 
     /* Kopfzeile */
     if (c.title) {
@@ -634,7 +765,6 @@ class RoomScenesCard extends HTMLElement {
       chips.appendChild(chip);
     }
 
-    this._bri = null;
     if (c.brightness_entity) wrap.appendChild(this._brightnessRow());
 
     if (this._error) wrap.appendChild(this._message(this._error));
@@ -670,6 +800,184 @@ class RoomScenesCard extends HTMLElement {
       more.addEventListener("click", () => this._openDialog());
       wrap.appendChild(more);
     }
+  }
+
+  /* ---- Layouts "kompakt" und "mini" ----
+   *
+   * Beide teilen sich mit dem Standard-Layout Aktionen, Popup, Preset-Aufloesung
+   * und den Helligkeits-Slider (inkl. In-place-Update). Sie unterscheiden sich nur
+   * darin, wie Modus, Automatik und Szenen dargestellt werden. */
+
+  _head(wrap, ...right) {
+    const head = document.createElement("div");
+    head.className = "head";
+    const t = document.createElement("div");
+    t.className = "title";
+    t.textContent = this._config.title ?? "";
+    head.appendChild(t);
+    for (const el of right) if (el) head.appendChild(el);
+    wrap.appendChild(head);
+  }
+
+  _autoButton(round = false) {
+    const c = this._config;
+    if (!c.auto_entity) return null;
+    const on = this._hass.states[c.auto_entity]?.state === "on";
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip auto" + (round ? " round" : "") + (on ? " active" : "");
+    chip.title = c.auto_name ?? "Automatik";
+    const icon = document.createElement("ha-icon");
+    icon.setAttribute("icon", c.auto_icon ?? "mdi:motion-sensor");
+    chip.appendChild(icon);
+    if (!round) {
+      const span = document.createElement("span");
+      span.textContent = c.auto_name ?? "Auto";
+      chip.appendChild(span);
+    }
+    chip.addEventListener("click", () => this._toggleAuto());
+    return chip;
+  }
+
+  // Aktueller Slot + Favoriten, wie im Standard-Raster
+  _presetEntries({ sceneActive, activePresetId }) {
+    const c = this._config;
+    const out = [];
+    if (c.show_current) {
+      const current = this._resolve(activePresetId);
+      out.push(current ? { preset: current, current: sceneActive, dimmed: !sceneActive, badge: sceneActive } : { empty: true });
+    }
+    for (const fav of c.favorites) {
+      const preset = this._resolve(typeof fav === "string" ? fav : fav.preset);
+      if (preset) out.push({ preset, current: sceneActive && preset.id === activePresetId });
+    }
+    return out;
+  }
+
+  _moreLink(wrap) {
+    if (!this._config.show_more) return;
+    const more = document.createElement("button");
+    more.className = "more";
+    more.type = "button";
+    more.textContent = this._config.more_name ?? "Alle anzeigen …";
+    more.addEventListener("click", () => this._openDialog());
+    wrap.appendChild(more);
+  }
+
+  _renderCompact(wrap, ctx) {
+    const c = this._config;
+    this._head(wrap, this._autoButton(false));
+
+    const seg = document.createElement("div");
+    seg.className = "seg";
+    for (const option of ctx.modeState.attributes?.options ?? []) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = option === ctx.activeMode ? "active" : "";
+      b.textContent = c.modes?.[option]?.name ?? option;
+      b.title = b.textContent;
+      b.addEventListener("click", () =>
+        this._setMode(option, option === c.scene_option ? ctx.activePresetId : null));
+      seg.appendChild(b);
+    }
+    wrap.appendChild(seg);
+
+    if (c.brightness_entity) wrap.appendChild(this._brightnessRow());
+    if (this._error) wrap.appendChild(this._message(this._error));
+    if (!this._lib) return;
+
+    const grid = document.createElement("div");
+    grid.className = "lgrid";
+    grid.style.gridTemplateColumns = `repeat(${c.columns}, minmax(0, 1fr))`;
+    for (const e of this._presetEntries(ctx)) grid.appendChild(this._listChip(e));
+    wrap.appendChild(grid);
+    this._moreLink(wrap);
+  }
+
+  _listChip({ preset, current = false, dimmed = false, empty = false }) {
+    const chip = document.createElement(empty ? "div" : "button");
+    chip.className = "lchip" + (current ? " current" : "") + (dimmed || empty ? " dimmed" : "");
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    if (preset?.image) thumb.style.backgroundImage = `url("${preset.image}")`;
+    else {
+      const fb = document.createElement("div");
+      fb.className = "fallback";
+      const icon = document.createElement("ha-icon");
+      icon.setAttribute("icon", empty ? "mdi:palette-outline" : preset.missing ? "mdi:help-circle-outline" : "mdi:palette");
+      fb.appendChild(icon);
+      thumb.appendChild(fb);
+    }
+    chip.appendChild(thumb);
+    const name = document.createElement("span");
+    name.className = "lname";
+    name.textContent = empty ? "Keine Szene" : preset.name;
+    chip.appendChild(name);
+    if (!empty) {
+      chip.type = "button";
+      chip.dataset.presetId = preset.id;
+      chip.title = preset.missing ? `Preset "${preset.id}" nicht in der Bibliothek gefunden` : `${preset.name} (${preset.id})`;
+      chip.addEventListener("click", () => this._pickPreset(preset));
+    }
+    return chip;
+  }
+
+  _renderMini(wrap, ctx) {
+    const c = this._config;
+
+    const sel = document.createElement("div");
+    sel.className = "modesel";
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", "Modus");
+    for (const option of ctx.modeState.attributes?.options ?? []) {
+      const o = document.createElement("option");
+      o.value = option;
+      o.textContent = c.modes?.[option]?.name ?? option;
+      if (option === ctx.activeMode) o.selected = true;
+      select.appendChild(o);
+    }
+    select.value = ctx.activeMode;
+    select.addEventListener("change", () => {
+      const option = select.value;
+      this._setMode(option, option === c.scene_option ? ctx.activePresetId : null);
+    });
+    sel.appendChild(select);
+    const caret = document.createElement("ha-icon");
+    caret.setAttribute("icon", "mdi:menu-down");
+    sel.appendChild(caret);
+    this._head(wrap, sel, this._autoButton(true));
+
+    if (this._error) wrap.appendChild(this._message(this._error));
+    if (this._lib) {
+      const strip = document.createElement("div");
+      strip.className = "strip";
+      for (const e of this._presetEntries(ctx)) strip.appendChild(e.empty ? this._emptyTile() : this._tile(e.preset, e));
+      if (c.show_more) strip.appendChild(this._moreTile());   // am Ende: die ganze Bibliothek
+      wrap.appendChild(strip);
+    }
+
+    if (c.brightness_entity) wrap.appendChild(this._brightnessRow("bar"));
+  }
+
+  _moreTile() {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "tile more-tile";
+    const swatch = document.createElement("div");
+    swatch.className = "swatch";
+    const fb = document.createElement("div");
+    fb.className = "fallback";
+    const icon = document.createElement("ha-icon");
+    icon.setAttribute("icon", "mdi:dots-horizontal");
+    fb.appendChild(icon);
+    swatch.appendChild(fb);
+    tile.appendChild(swatch);
+    const label = document.createElement("div");
+    label.className = "label";
+    label.textContent = this._config.more_name ?? "Alle …";
+    tile.appendChild(label);
+    tile.addEventListener("click", () => this._openDialog());
+    return tile;
   }
 
   _message(text) {
@@ -980,6 +1288,7 @@ const fireEvent = (node, type, detail) =>
 
 const LABELS = {
   title: "Titel",
+  layout: "Layout",
   mode_entity: "Modus (input_select)",
   preset_entity: "Aktive Szene (input_text)",
   auto_entity: "Automatik (input_boolean)",
@@ -1226,6 +1535,7 @@ class RoomScenesCardEditor extends HTMLElement {
     if (this._hass) this._form.hass = this._hass;
     this._form.schema = this._schema();
     this._form.data = {
+      layout: "standard",
       show_current: true,
       show_more: true,
       columns: 3,
@@ -1244,7 +1554,26 @@ class RoomScenesCardEditor extends HTMLElement {
   _schema() {
     const options = this._modeOptions();
     return [
-      { name: "title", selector: { text: {} } },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "title", selector: { text: {} } },
+          {
+            name: "layout",
+            selector: {
+              select: {
+                mode: "dropdown",
+                options: [
+                  { value: "standard", label: "Standard – Chips + Kachelraster" },
+                  { value: "kompakt", label: "Kompakt – Segmentleiste + Listen-Chips" },
+                  { value: "mini", label: "Mini – Dropdown + Szenen seitlich" },
+                ],
+              },
+            },
+          },
+        ],
+      },
       {
         name: "mode_entity",
         required: true,
